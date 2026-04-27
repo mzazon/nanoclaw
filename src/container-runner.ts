@@ -50,6 +50,14 @@ const onecli = new OneCLI({ url: ONECLI_URL, apiKey: ONECLI_API_KEY });
 /** Active containers tracked by session ID. */
 const activeContainers = new Map<string, { process: ChildProcess; containerName: string }>();
 
+/** Snapshot of active container entries for the dashboard pusher. */
+export function getActiveContainerEntries(): Array<{ sessionId: string; containerName: string }> {
+  return Array.from(activeContainers.entries()).map(([sessionId, entry]) => ({
+    sessionId,
+    containerName: entry.containerName,
+  }));
+}
+
 /**
  * In-flight wake promises, keyed by session id. Deduplicates concurrent
  * `wakeContainer` calls while the first spawn is still mid-setup (async

@@ -99,12 +99,13 @@ export const sendMessage: McpToolDefinition = {
   tool: {
     name: 'send_message',
     description:
-      'Send a message to a named destination. If you have only one destination, you can omit `to`.',
+      'Send a message to a named destination. If you have only one destination, you can omit `to`. Use thread_id to target a specific thread (e.g., one returned by create_forum_thread).',
     inputSchema: {
       type: 'object' as const,
       properties: {
         to: { type: 'string', description: 'Destination name (e.g., "family", "worker-1"). Optional if you have only one destination.' },
         text: { type: 'string', description: 'Message content' },
+        thread_id: { type: 'string', description: 'Target a specific thread instead of the session default. Use the thread_id returned by create_forum_thread.' },
       },
       required: ['text'],
     },
@@ -116,17 +117,27 @@ export const sendMessage: McpToolDefinition = {
     const routing = resolveRouting(args.to as string | undefined);
     if ('error' in routing) return err(routing.error);
 
+    // LOCAL-001: override stale session_routing.thread_id
+    let threadId = routing.thread_id;
+    const explicitThreadId = args.thread_id as string | undefined;
+    if (explicitThreadId) {
+      if (!explicitThreadId.startsWith(routing.platform_id)) {
+        return err(`thread_id must belong to the target channel (expected prefix: ${routing.platform_id})`);
+      }
+      threadId = explicitThreadId;
+    }
+
     const id = generateId();
     const seq = writeMessageOut({
       id,
       kind: 'chat',
       platform_id: routing.platform_id,
       channel_type: routing.channel_type,
-      thread_id: routing.thread_id,
+      thread_id: threadId,
       content: JSON.stringify({ text }),
     });
 
-    log(`send_message: #${seq} → ${routing.resolvedName}`);
+    log(`send_message: #${seq} → ${routing.resolvedName}${explicitThreadId ? ' (explicit thread)' : ''}`);
     return ok(`Message sent to ${routing.resolvedName} (id: ${seq})`);
   },
 };

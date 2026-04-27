@@ -134,6 +134,17 @@ Approval-gating credentialed actions is a **two-sided** flow:
 
 If approvals are configured server-side but the host callback isn't running (or throws), every credentialed call hangs until the gateway times out. Conversely, if the gateway has no rule asking for approval, the host callback never fires regardless of how it's wired.
 
+### Adding external MCP tool integrations
+
+Third-party MCP servers (Google Calendar, Gmail, etc.) follow a 4-layer pattern: OneCLI app connection, stub credentials on host, mount allowlist entry (`allowReadWrite: true`), Dockerfile package install, per-group container.json wiring. No tool allowlist changes needed — containers run with `bypassPermissions` and MCP tools from configured servers are auto-available. Full pattern with gotchas documented in `~/vault/Projects/NanoClaw/NanoClaw Customization Patterns.md` (Pattern 8).
+
+Key files for MCP tool integrations:
+- `container/Dockerfile` — pinned `ARG` + `pnpm install -g` layer for the MCP server package
+- `groups/<folder>/container.json` — `mcpServers` entry + `additionalMounts` entry per group
+- `~/.config/nanoclaw/mount-allowlist.json` — host-level mount security (`allowReadWrite: true` required for token-refreshing MCP servers)
+
+Current integrations: Google Calendar (`@cocal/google-calendar-mcp`), Gmail (`@gongrzhe/server-gmail-autoauth-mcp`). Both use OneCLI stub-credential pattern.
+
 ## Skills
 
 Four types of skills. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full taxonomy.
@@ -229,6 +240,14 @@ The agent container runs on **Bun**; the host runs on **Node** (pnpm). They comm
 - **Adding a Node CLI the agent invokes at runtime** (like `agent-browser`, `claude-code`, `vercel`) → put it in the Dockerfile's pnpm global-install block, pinned to an exact version via a new `ARG`. Don't use `bun install -g` — that bypasses the pnpm supply-chain policy.
 - **Changing the Dockerfile entrypoint or the dynamic-spawn command** (`src/container-runner.ts` line ~301) → keep `exec bun ...` so signals forward cleanly. The image has no `/app/dist`; don't reintroduce a tsc build step.
 - **Changing session-DB pragmas** (`container/agent-runner/src/db/connection.ts`) → `journal_mode=DELETE` is load-bearing for cross-mount visibility. Read the comment block at the top of the file first.
+
+## Local Customizations
+
+Changes diverging from upstream trunk. Each has a reference ID (`LOCAL-NNN`) marked in code comments for `grep -r 'LOCAL-' src/ container/`. Re-apply after upstream merges.
+
+| ID | Files | What & Why |
+|----|-------|------------|
+| LOCAL-001 | `src/modules/forum-thread.ts`, `container/agent-runner/src/mcp-tools/forum-thread.ts`, `container/agent-runner/src/mcp-tools/core.ts` | **Forum thread targeting fix.** `create_forum_thread` now returns the new thread's platform-qualified ID via the existing `writeSystemResponse` request-response pattern. `send_message` gains an optional `thread_id` param to override session default. Without this, multi-research sessions post results to the first thread instead of the newly created one — `resolveRouting()` inherits `session_routing.thread_id` when destination matches session channel. |
 
 ## CJK font support
 
