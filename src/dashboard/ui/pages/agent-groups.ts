@@ -44,6 +44,35 @@ export function agentGroupsPage(): string {
     async function loadDetail(id) {
       document.getElementById('content').innerHTML = '<a href="/dashboard/agent-groups">&larr; Back to list</a>';
       document.getElementById('detail').style.display = 'block';
+
+      // Render tabs bar
+      const tabsHtml =
+        '<div class="tabs" id="detail-tabs">' +
+          '<div class="tab active" data-tab="details" onclick="switchTab(\'details\')">Details</div>' +
+          '<div class="tab" data-tab="config" onclick="switchTab(\'config\')">Config</div>' +
+        '</div>' +
+        '<div id="tab-details"></div>' +
+        '<div id="tab-config" style="display:none"></div>';
+      document.getElementById('detail').innerHTML = tabsHtml;
+
+      // Load the details tab content
+      loadDetailsTab(id);
+    }
+
+    function switchTab(tab) {
+      document.querySelectorAll('#detail-tabs .tab').forEach(function(el) {
+        el.classList.toggle('active', el.getAttribute('data-tab') === tab);
+      });
+      document.getElementById('tab-details').style.display = tab === 'details' ? '' : 'none';
+      document.getElementById('tab-config').style.display = tab === 'config' ? '' : 'none';
+      if (tab === 'config' && !document.getElementById('tab-config').dataset.loaded) {
+        const params = new URLSearchParams(location.search);
+        const id = params.get('id');
+        loadConfigTab(id);
+      }
+    }
+
+    async function loadDetailsTab(id) {
       try {
         const data = await api('/api/agent-groups/' + encodeURIComponent(id));
         const g = data.group;
@@ -118,9 +147,80 @@ export function agentGroupsPage(): string {
           html += '</table>';
         }
 
-        document.getElementById('detail').innerHTML = html;
+        document.getElementById('tab-details').innerHTML = html;
       } catch (e) {
-        document.getElementById('detail').innerHTML = '<div class="loading">Error: ' + esc(e.message) + '</div>';
+        document.getElementById('tab-details').innerHTML = '<div class="loading">Error: ' + esc(e.message) + '</div>';
+      }
+    }
+
+    async function loadConfigTab(id) {
+      const el = document.getElementById('tab-config');
+      el.innerHTML = '<div class="loading">Loading config...</div>';
+      try {
+        const data = await api('/api/agent-groups/' + encodeURIComponent(id) + '/config');
+        el.dataset.loaded = '1';
+        let html = '';
+
+        // CLAUDE.md section
+        html += collapsible('CLAUDE.md',
+          data.claude_md
+            ? '<pre class="code-block">' + esc(data.claude_md) + '</pre>'
+            : '<div class="loading">No CLAUDE.md found</div>',
+          true
+        );
+
+        // container.json section
+        html += collapsible('container.json',
+          data.container_json !== null
+            ? '<pre class="code-block">' + esc(JSON.stringify(data.container_json, null, 2)) + '</pre>'
+            : '<div class="loading">No container.json found</div>',
+          true
+        );
+
+        // Skills section
+        let skillsContent;
+        if (data.skills && data.skills.length > 0) {
+          skillsContent = '<ul style="list-style:none;padding:0;margin:0">';
+          for (const sk of data.skills) {
+            skillsContent += '<li style="padding:6px 0;border-bottom:1px solid var(--border-subtle);color:var(--text-secondary);font-size:var(--font-size-base)">' +
+              '<span style="font-weight:500">' + esc(sk.name) + '</span>' +
+              '<span style="color:var(--text-muted);font-size:var(--font-size-xs);margin-left:8px">' + sk.size + ' B</span>' +
+              '</li>';
+          }
+          skillsContent += '</ul>';
+        } else {
+          skillsContent = '<div class="loading">No skills found</div>';
+        }
+        html += collapsible('Skills', skillsContent, true);
+
+        el.innerHTML = html;
+      } catch (e) {
+        el.innerHTML = '<div class="loading">Error: ' + esc(e.message) + '</div>';
+      }
+    }
+
+    function collapsible(title, content, open) {
+      const id = 'collapse-' + title.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+      return '<div style="margin-bottom:16px;border:1px solid var(--border-subtle);border-radius:var(--radius-lg);background:var(--bg-surface)">' +
+        '<div onclick="toggleCollapse(\'' + id + '\')" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;cursor:pointer;font-weight:600;color:var(--text-secondary);font-size:var(--font-size-base)">' +
+          '<span>' + esc(title) + '</span>' +
+          '<span id="' + id + '-arrow" style="font-size:10px;color:var(--text-muted)">' + (open ? '&#9650;' : '&#9660;') + '</span>' +
+        '</div>' +
+        '<div id="' + id + '" style="' + (open ? '' : 'display:none;') + 'padding:0 16px 16px">' +
+          content +
+        '</div>' +
+      '</div>';
+    }
+
+    function toggleCollapse(id) {
+      const el = document.getElementById(id);
+      const arrow = document.getElementById(id + '-arrow');
+      if (el.style.display === 'none') {
+        el.style.display = '';
+        arrow.innerHTML = '&#9650;';
+      } else {
+        el.style.display = 'none';
+        arrow.innerHTML = '&#9660;';
       }
     }
 

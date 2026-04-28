@@ -5,6 +5,8 @@
 import type http from 'http';
 import fs from 'fs';
 import path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import Database from 'better-sqlite3';
 import { getSnapshot, getLastUpdated } from './store.js';
 import { overviewPage } from './ui/pages/overview.js';
@@ -23,7 +25,10 @@ import { auditPage } from './ui/pages/audit.js';
 import { scanScheduledTasks, findTaskSession } from './tasks-db.js';
 import { cancelTask, pauseTask, resumeTask } from '../modules/scheduling/db.js';
 import { getAllAgentGroups } from '../db/agent-groups.js';
-import { DATA_DIR } from '../config.js';
+import { DATA_DIR, GROUPS_DIR } from '../config.js';
+import { getActiveContainerEntries } from '../container-runner.js';
+
+const execFileAsync = promisify(execFile);
 
 function json(res: http.ServerResponse, data: unknown, status = 200): void {
   res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -86,6 +91,62 @@ export async function dispatch(
     return json(res, s.agent_groups);
   }
 
+  if (method === 'GET' && urlPath.match(/^\/api\/agent-groups\/[^/]+\/config$/)) {
+    const id = decodeURIComponent(urlPath.split('/')[3]);
+    const groups = getAllAgentGroups();
+    const group = groups.find((g) => g.id === id);
+    if (!group) return json(res, { error: 'Not found' }, 404);
+
+    // Path traversal guard
+    const groupDir = path.resolve(GROUPS_DIR, group.folder);
+    if (!groupDir.startsWith(path.resolve(GROUPS_DIR) + path.sep)) {
+      return json(res, { error: 'Invalid folder' }, 403);
+    }
+
+    // CLAUDE.md
+    let claude_md: string | null = null;
+    const claudeMdPath = path.join(groupDir, 'CLAUDE.md');
+    try {
+      if (fs.existsSync(claudeMdPath)) {
+        claude_md = fs.readFileSync(claudeMdPath, 'utf-8');
+      }
+    } catch {
+      // leave null
+    }
+
+    // container.json
+    let container_json: unknown = null;
+    const containerJsonPath = path.join(groupDir, 'container.json');
+    try {
+      if (fs.existsSync(containerJsonPath)) {
+        container_json = JSON.parse(fs.readFileSync(containerJsonPath, 'utf-8'));
+      }
+    } catch {
+      // leave null
+    }
+
+    // skills
+    const skills: { name: string; size: number }[] = [];
+    const skillsDir = path.join(groupDir, 'skills');
+    try {
+      if (fs.existsSync(skillsDir) && fs.statSync(skillsDir).isDirectory()) {
+        for (const entry of fs.readdirSync(skillsDir)) {
+          try {
+            const skillPath = path.join(skillsDir, entry);
+            const stat = fs.statSync(skillPath);
+            skills.push({ name: entry, size: stat.size });
+          } catch {
+            // skip unreadable entries
+          }
+        }
+      }
+    } catch {
+      // leave skills empty
+    }
+
+    return json(res, { claude_md, container_json, skills });
+  }
+
   if (method === 'GET' && urlPath.startsWith('/api/agent-groups/')) {
     if (!s) return json(res, { error: 'No data yet' }, 503);
     const id = urlPath.slice('/api/agent-groups/'.length);
@@ -145,6 +206,33 @@ export async function dispatch(
   if (method === 'GET' && urlPath === '/api/host-health') {
     if (!s || !s.host_health) return json(res, { error: 'No data yet' }, 503);
     return json(res, s.host_health);
+  }
+
+  if (method === 'GET' && urlPath.startsWith('/api/containers/') && urlPath.endsWith('/logs')) {
+    const sessionId = decodeURIComponent(urlPath.slice('/api/containers/'.length, -'/logs'.length));
+    // Only allow fetching logs for containers tracked in the active map (security allowlist)
+    const entries = getActiveContainerEntries();
+    const entry = entries.find((e) => e.sessionId === sessionId);
+    if (!entry) return json(res, { error: 'Container not found or not running' }, 404);
+
+    const rawTail = parseInt(params.get('tail') ?? '100', 10);
+    const tail = isNaN(rawTail) || rawTail <= 0 ? 100 : Math.min(rawTail, 1000);
+
+    try {
+      const { stdout, stderr } = await execFileAsync('docker', [
+        'logs',
+        '--tail',
+        String(tail),
+        '--timestamps',
+        entry.containerName,
+      ]);
+      const combined = (stdout + stderr)
+        .split('\n')
+        .filter((l) => l.length > 0);
+      return json(res, { lines: combined });
+    } catch (err) {
+      return json(res, { error: String(err) }, 500);
+    }
   }
 
   if (method === 'GET' && urlPath === '/api/containers') {
