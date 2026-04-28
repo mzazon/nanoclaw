@@ -74,7 +74,23 @@ export function agentGroupsPage(): string {
 
     async function loadDetailsTab(id) {
       try {
-        const data = await api('/api/agent-groups/' + encodeURIComponent(id));
+        const [data, channelsData] = await Promise.all([
+          api('/api/agent-groups/' + encodeURIComponent(id)),
+          api('/api/channels').catch(() => ({ channels: [] }))
+        ]);
+
+        // Build a map from messaging group id -> friendly display name
+        const mgNameMap = new Map();
+        const channelList = channelsData.channels || [];
+        for (const ch of channelList) {
+          for (const g of (ch.groups || [])) {
+            const mg = g.messagingGroup;
+            if (mg && mg.id) {
+              const display = mg.name || friendlyId(ch.channelType, mg.platform_id);
+              mgNameMap.set(mg.id, { name: display, channelType: ch.channelType });
+            }
+          }
+        }
         const g = data.group;
         let html = '<h2 class="page-title">' + esc(g.name) + '</h2>';
 
@@ -129,7 +145,18 @@ export function agentGroupsPage(): string {
         if (data.destinations.length > 0) {
           html += '<table><tr><th>Name</th><th>Type</th><th>Target</th></tr>';
           for (const d of data.destinations) {
-            html += '<tr><td>' + esc(d.local_name) + '</td><td>' + badge(d.target_type, d.target_type === 'channel' ? 'blue' : 'purple') + '</td><td style="font-size:11px" title="' + esc(d.target_id) + '">' + esc(truncId(d.target_id, 30)) + '</td></tr>';
+            let targetCell;
+            if (d.target_type === 'channel' && mgNameMap.has(d.target_id)) {
+              const info = mgNameMap.get(d.target_id);
+              targetCell = '<div style="display:flex;align-items:center;gap:6px">' +
+                badge(info.channelType, 'blue') +
+                '<span style="font-weight:500">' + esc(info.name) + '</span>' +
+                '</div>' +
+                '<div style="font-size:11px;color:var(--text-muted);margin-top:2px" title="' + esc(d.target_id) + '">' + esc(truncId(d.target_id, 30)) + '</div>';
+            } else {
+              targetCell = '<span style="font-size:11px" title="' + esc(d.target_id) + '">' + esc(truncId(d.target_id, 30)) + '</span>';
+            }
+            html += '<tr><td>' + esc(d.local_name) + '</td><td>' + badge(d.target_type, d.target_type === 'channel' ? 'blue' : 'purple') + '</td><td>' + targetCell + '</td></tr>';
           }
           html += '</table>';
         }

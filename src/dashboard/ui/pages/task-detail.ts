@@ -50,13 +50,19 @@ export function taskDetailPage(): string {
     }
 
     function renderView(t) {
-      var channelBadge = t.channel_type
-        ? badge(t.channel_type, 'blue') + ' <span style="color:var(--text-muted);font-size:12px">' + esc(t.platform_id || '') + '</span>'
-        : '<span style="color:var(--text-muted)">none</span>';
-
-      var threadInfo = t.thread_id
-        ? '<div class="detail-row"><div class="detail-label">Thread ID</div><div class="detail-value" style="font-family:var(--font-mono);font-size:12px">' + esc(t.thread_id) + '</div></div>'
-        : '';
+      var channelSection;
+      if (t.channel_type) {
+        channelSection =
+          '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+          '<span style="font-weight:500">Task</span>' +
+          '<span style="color:var(--text-muted)">&#8594;</span>' +
+          badge(t.channel_type, 'blue') +
+          '<span>' + esc(friendlyId(t.channel_type, t.platform_id)) + '</span>' +
+          (t.thread_id ? '<span style="color:var(--text-muted)">&#8594; thread ' + esc(t.thread_id) + '</span>' : '') +
+          '</div>';
+      } else {
+        channelSection = '<span style="color:var(--text-muted)">none</span>';
+      }
 
       var scheduleDisplay = t.recurrence_human
         ? esc(t.recurrence_human) + ' <span style="color:var(--text-muted);font-size:11px">(' + esc(t.recurrence) + ')</span>'
@@ -122,9 +128,8 @@ export function taskDetailPage(): string {
           </div>
           <div class="detail-row">
             <div class="detail-label">Channel</div>
-            <div class="detail-value">\${channelBadge}</div>
+            <div class="detail-value">\${channelSection}</div>
           </div>
-          \${threadInfo}
           <div class="detail-row">
             <div class="detail-label">Schedule</div>
             <div class="detail-value">\${scheduleDisplay}</div>
