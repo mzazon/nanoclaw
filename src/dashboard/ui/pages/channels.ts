@@ -25,9 +25,9 @@ export function channelsPage(): string {
 
           html += '<div class="detail-panel">';
           html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">';
-          html += '<span style="font-size:16px;font-weight:600;color:#fff">' + esc(ch.channelType) + '</span>';
+          html += '<span style="font-size:16px;font-weight:600;color:var(--text-primary)">' + esc(ch.channelType) + '</span>';
           html += statusBadge;
-          html += '<span style="color:#666;font-size:12px">' + ch.groups.length + ' messaging group' + (ch.groups.length !== 1 ? 's' : '') + '</span>';
+          html += '<span style="color:var(--text-muted);font-size:12px">' + ch.groups.length + ' messaging group' + (ch.groups.length !== 1 ? 's' : '') + '</span>';
           html += '</div>';
 
           if (ch.groups.length > 0) {
@@ -39,13 +39,13 @@ export function channelsPage(): string {
               const policyBadge = badge(policy, policy === 'public' ? 'green' : policy === 'strict' ? 'red' : 'yellow');
               const agentLinks = g.agents.map(a =>
                 '<a href="/dashboard/agent-groups?id=' + esc(a.agent_group_id) + '">' + esc(a.agent_group_name || a.agent_group_id) + '</a>'
-              ).join(', ') || '<span style="color:#666">none</span>';
+              ).join(', ') || '<span style="color:var(--text-muted)">none</span>';
 
               const displayName = mg.name || friendlyPlatformId(ch.channelType, mg.platform_id);
 
               html += '<tr>' +
                 '<td><span style="font-weight:500">' + esc(displayName) + '</span>' +
-                '<div style="font-size:11px;color:#555;margin-top:2px" title="' + esc(mg.platform_id) + '">' + esc(truncId(mg.platform_id, 40)) + '</div></td>' +
+                '<div style="font-size:11px;color:var(--text-muted);margin-top:2px" title="' + esc(mg.platform_id) + '">' + esc(truncId(mg.platform_id, 40)) + '</div></td>' +
                 '<td>' + typeBadge + '</td>' +
                 '<td>' + policyBadge + '</td>' +
                 '<td>' + agentLinks + '</td>' +

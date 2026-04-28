@@ -29,17 +29,17 @@ export function sessionsPage(): string {
           const statusBadge = s.status === 'active' ? badge('active', 'green') : badge(s.status, 'gray');
           const containerBadge = s.container_status === 'running' ? badge('running', 'green') :
             s.container_status === 'idle' ? badge('idle', 'yellow') : badge(s.container_status, 'gray');
-          const channel = s.channel_type ? badge(s.channel_type, 'blue') : '<span style="color:#666">-</span>';
+          const channel = s.channel_type ? badge(s.channel_type, 'blue') : '<span style="color:var(--text-muted)">-</span>';
           const dest = s.messaging_group_name || friendlyId(s.channel_type, s.platform_id) || '-';
 
           // Context window mini bar
           const ctx = ctxMap[s.agent_group_id];
-          let ctxCell = '<span style="color:#555">-</span>';
+          let ctxCell = '<span style="color:var(--text-muted)">-</span>';
           if (ctx) {
             const pct = ctx.usagePercent;
-            const barColor = pct > 80 ? '#f87171' : pct > 50 ? '#facc15' : '#4ade80';
+            const barColor = pct > 80 ? 'var(--status-error)' : pct > 50 ? 'var(--status-warning)' : 'var(--status-success)';
             ctxCell = '<div style="display:flex;align-items:center;gap:6px">' +
-              '<div style="width:60px;background:#2a2a2a;border-radius:3px;height:6px;overflow:hidden">' +
+              '<div style="width:60px;background:var(--border-default);border-radius:3px;height:6px;overflow:hidden">' +
               '<div style="background:' + barColor + ';height:100%;width:' + Math.min(pct, 100) + '%"></div></div>' +
               '<span style="font-size:11px;color:' + barColor + '">' + pct + '%</span></div>';
           }

@@ -4,9 +4,15 @@
  * Serves dashboard UI and API endpoints.
  */
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { setSnapshot, addLogClient, removeLogClient, pushLogLines } from './store.js';
 import { dispatch } from './router.js';
 import type { DashboardConfig, DashboardSnapshot } from './types.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const FONTS_DIR = path.resolve(__dirname, '../../src/dashboard/fonts');
 
 const DEFAULT_PORT = 3100;
 
@@ -15,6 +21,10 @@ let dashboardSecret: string | null = null;
 
 export function getDashboardSecret(): string | null {
   return dashboardSecret;
+}
+
+export function setDashboardSecret(secret: string | null): void {
+  dashboardSecret = secret;
 }
 
 export function startDashboard(config: DashboardConfig = {}): void {
@@ -65,6 +75,36 @@ export function startDashboard(config: DashboardConfig = {}): void {
     // Log SSE stream — browser connects here
     if (path === '/api/logs' && method === 'GET') {
       handleLogStream(req, res);
+      return;
+    }
+
+    // Serve self-hosted fonts
+    if (path.startsWith('/fonts/') && method === 'GET') {
+      const fontName = path.slice('/fonts/'.length).replace(/[^a-zA-Z0-9._-]/g, '');
+      if (!fontName || fontName.includes('..')) {
+        res.writeHead(400);
+        res.end();
+        return;
+      }
+      const fontPath = `${FONTS_DIR}/${fontName}`;
+      try {
+        const data = fs.readFileSync(fontPath);
+        const ext = fontName.split('.').pop() || '';
+        const mimeTypes: Record<string, string> = {
+          woff2: 'font/woff2',
+          woff: 'font/woff',
+          ttf: 'font/ttf',
+          otf: 'font/otf',
+        };
+        res.writeHead(200, {
+          'Content-Type': mimeTypes[ext] ?? 'application/octet-stream',
+          'Cache-Control': 'public, max-age=31536000, immutable',
+        });
+        res.end(data);
+      } catch {
+        res.writeHead(404);
+        res.end();
+      }
       return;
     }
 

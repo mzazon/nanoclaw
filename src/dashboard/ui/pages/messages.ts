@@ -7,9 +7,9 @@ export function messagesPage(): string {
     `
     <h2 class="page-title">Messages</h2>
     <div id="selector" style="margin-bottom:16px">
-      <span style="color:#888;font-size:13px">Select a session from the </span>
+      <span style="color:var(--text-secondary);font-size:13px">Select a session from the </span>
       <a href="/dashboard/sessions">Sessions page</a>
-      <span style="color:#888;font-size:13px"> to view messages, or use query params: ?agentGroupId=X&sessionId=Y</span>
+      <span style="color:var(--text-secondary);font-size:13px"> to view messages, or use query params: ?agentGroupId=X&sessionId=Y</span>
     </div>
     <div id="content"></div>
     <script>
@@ -40,7 +40,7 @@ export function messagesPage(): string {
 
       document.getElementById('selector').innerHTML =
         '<a href="/dashboard/messages">&larr; Back</a> ' +
-        '<span style="color:#666;font-size:12px">Session: ' + esc(sessionId) + '</span>';
+        '<span style="color:var(--text-muted);font-size:12px">Session: ' + esc(sessionId) + '</span>';
 
       document.getElementById('content').innerHTML = '<div class="loading">Loading messages...</div>';
 
@@ -70,7 +70,7 @@ export function messagesPage(): string {
           } catch { content = content.slice(0, 300); }
 
           html += '<tr>' +
-            '<td style="white-space:nowrap;font-size:12px;color:#888">' + esc(m.timestamp || '') + '</td>' +
+            '<td style="white-space:nowrap;font-size:12px;color:var(--text-secondary)">' + esc(m.timestamp || '') + '</td>' +
             '<td>' + dirBadge + '</td>' +
             '<td style="font-size:12px">' + esc(m.kind || '') + '</td>' +
             '<td style="font-size:12px;max-width:500px;overflow:hidden;text-overflow:ellipsis">' + esc(content) + '</td>' +

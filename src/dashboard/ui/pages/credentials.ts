@@ -14,7 +14,7 @@ export function credentialsPage(): string {
 
         if (!data || !data.available) {
           document.getElementById('content').innerHTML =
-            '<div style="background:#3a3a1a;border:1px solid #facc15;color:#facc15;border-radius:8px;padding:16px;margin-bottom:24px">' +
+            '<div style="background:var(--status-warning-bg);border:1px solid var(--status-warning);color:var(--status-warning);border-radius:8px;padding:16px;margin-bottom:24px">' +
             'OneCLI is not available. Configure ONECLI_URL in .env to enable credential management.' +
             '</div>';
           return;
@@ -59,9 +59,9 @@ export function credentialsPage(): string {
             var s = data.secrets[j];
             var patterns = '';
             if (s.host_patterns && s.host_patterns.length > 0) {
-              patterns = s.host_patterns.map(function(p) { return '<code style="background:#2a2a2a;padding:2px 6px;border-radius:3px;font-size:12px">' + esc(p) + '</code>'; }).join(' ');
+              patterns = s.host_patterns.map(function(p) { return '<code style="background:var(--bg-elevated);padding:2px 6px;border-radius:3px;font-size:12px">' + esc(p) + '</code>'; }).join(' ');
             } else {
-              patterns = '<span style="color:#666">none</span>';
+              patterns = '<span style="color:var(--text-muted)">none</span>';
             }
             html += '<tr>' +
               '<td>' + esc(s.name) + '</td>' +

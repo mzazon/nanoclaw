@@ -41,8 +41,8 @@ export function auditPage(): string {
               '<td>' + esc(s.sender_name || s.platform_id || '-') + '</td>' +
               '<td>' + esc(s.reason || '-') + '</td>' +
               '<td>' + esc(String(s.message_count || 0)) + '</td>' +
-              '<td>' + (s.first_seen ? '<span title="' + esc(s.first_seen) + '">' + timeAgo(s.first_seen) + '</span>' : '<span style="color:#555">-</span>') + '</td>' +
-              '<td>' + (s.last_seen ? '<span title="' + esc(s.last_seen) + '">' + timeAgo(s.last_seen) + '</span>' : '<span style="color:#555">-</span>') + '</td>' +
+              '<td>' + (s.first_seen ? '<span title="' + esc(s.first_seen) + '">' + timeAgo(s.first_seen) + '</span>' : '<span style="color:var(--text-muted)">-</span>') + '</td>' +
+              '<td>' + (s.last_seen ? '<span title="' + esc(s.last_seen) + '">' + timeAgo(s.last_seen) + '</span>' : '<span style="color:var(--text-muted)">-</span>') + '</td>' +
               '</tr>';
           }
           html += '</table>';
@@ -78,7 +78,7 @@ export function auditPage(): string {
               '<td>' + esc(a.action || '-') + '</td>' +
               '<td>' + esc(a.title || '-') + '</td>' +
               '<td>' + badge(a.status || '-', statusColor) + '</td>' +
-              '<td>' + (a.created_at ? '<span title="' + esc(a.created_at) + '">' + timeAgo(a.created_at) + '</span>' : '<span style="color:#555">-</span>') + '</td>' +
+              '<td>' + (a.created_at ? '<span title="' + esc(a.created_at) + '">' + timeAgo(a.created_at) + '</span>' : '<span style="color:var(--text-muted)">-</span>') + '</td>' +
               '</tr>';
           }
           html += '</table>';
@@ -102,13 +102,13 @@ export function auditPage(): string {
             if (q.options && q.options.length > 0) {
               opts = q.options.map(function(o) { return badge(typeof o === 'string' ? o : (o.label || o.value || String(o)), 'gray'); }).join(' ');
             } else {
-              opts = '<span style="color:#555">-</span>';
+              opts = '<span style="color:var(--text-muted)">-</span>';
             }
             html += '<tr>' +
               '<td style="font-family:monospace;font-size:12px">' + esc(truncId(q.session_id || '-', 16)) + '</td>' +
               '<td>' + esc(q.title || '-') + '</td>' +
               '<td>' + opts + '</td>' +
-              '<td>' + (q.created_at ? '<span title="' + esc(q.created_at) + '">' + timeAgo(q.created_at) + '</span>' : '<span style="color:#555">-</span>') + '</td>' +
+              '<td>' + (q.created_at ? '<span title="' + esc(q.created_at) + '">' + timeAgo(q.created_at) + '</span>' : '<span style="color:var(--text-muted)">-</span>') + '</td>' +
               '</tr>';
           }
           html += '</table>';

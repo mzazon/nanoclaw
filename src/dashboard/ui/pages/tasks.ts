@@ -40,39 +40,25 @@ export function tasksPage(): string {
 
           var scheduleCell = t.recurrence_human
             ? esc(t.recurrence_human)
-            : (t.recurrence ? esc(t.recurrence) : '<span style="color:#666">once</span>');
+            : (t.recurrence ? esc(t.recurrence) : '<span style="color:var(--text-muted)">once</span>');
 
           var nextRun = t.process_after
-            ? '<span title="' + esc(t.process_after) + '">' + timeAgo(t.process_after) + '</span>'
-            : '<span style="color:#666">-</span>';
-
-          // For future dates, timeAgo shows negative — replace with a forward-looking label
-          if (t.process_after) {
-            var diff = new Date(t.process_after).getTime() - Date.now();
-            if (diff > 0) {
-              var secs = Math.floor(diff / 1000);
-              var label = '';
-              if (secs < 60) label = 'in ' + secs + 's';
-              else if (secs < 3600) label = 'in ' + Math.floor(secs/60) + 'm';
-              else if (secs < 86400) label = 'in ' + Math.floor(secs/3600) + 'h';
-              else label = 'in ' + Math.floor(secs/86400) + 'd';
-              nextRun = '<span title="' + esc(t.process_after) + '">' + esc(label) + '</span>';
-            }
-          }
+            ? '<span title="' + esc(t.process_after) + '">' + timeUntil(t.process_after, t.status) + '</span>'
+            : '<span style="color:var(--text-muted)">-</span>';
 
           var lastRun = t.last_completed
             ? '<span title="' + esc(t.last_completed) + '">' + timeAgo(t.last_completed) + '</span>'
-            : '<span style="color:#666">never</span>';
+            : '<span style="color:var(--text-muted)">never</span>';
 
           var actions = '';
           if (t.status === 'pending') {
-            actions += '<button onclick="taskAction(\\'' + escAttr(t.id) + '\\', \\'pause\\')" style="' + btnStyle('yellow') + '">Pause</button> ';
+            actions += '<button class="btn btn-warning btn-sm" onclick="taskAction(\\'' + escAttr(t.id) + '\\', \\'pause\\')">Pause</button> ';
           }
           if (t.status === 'paused') {
-            actions += '<button onclick="taskAction(\\'' + escAttr(t.id) + '\\', \\'resume\\')" style="' + btnStyle('green') + '">Resume</button> ';
+            actions += '<button class="btn btn-success btn-sm" onclick="taskAction(\\'' + escAttr(t.id) + '\\', \\'resume\\')">Resume</button> ';
           }
           if (t.status !== 'completed') {
-            actions += '<button onclick="taskAction(\\'' + escAttr(t.id) + '\\', \\'cancel\\')" style="' + btnStyle('red') + '">Cancel</button>';
+            actions += '<button class="btn btn-danger btn-sm" onclick="taskAction(\\'' + escAttr(t.id) + '\\', \\'cancel\\')">Cancel</button>';
           }
 
           html += '<tr>' +
@@ -92,13 +78,6 @@ export function tasksPage(): string {
       } catch (e) {
         document.getElementById('content').innerHTML = '<div class="loading">Error: ' + esc(e.message) + '</div>';
       }
-    }
-
-    function btnStyle(color) {
-      var bg = { yellow: '#3a3a1a', green: '#1a3a1a', red: '#3a1a1a' };
-      var fg = { yellow: '#facc15', green: '#4ade80', red: '#f87171' };
-      return 'background:' + (bg[color]||'#2a2a2a') + ';color:' + (fg[color]||'#999') +
-        ';border:1px solid ' + (fg[color]||'#555') + ';border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer;font-weight:600;text-transform:uppercase';
     }
 
     function escAttr(s) {

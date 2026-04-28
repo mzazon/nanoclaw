@@ -32,25 +32,25 @@ export function containersPage(): string {
 
           var statusBadge = c.status === 'running' ? badge('running', 'green') : badge(c.status || 'stopped', 'gray');
 
-          var cpuCell = c.cpu_percent != null ? esc(c.cpu_percent.toFixed(1) + '%') : '<span style="color:#555">-</span>';
+          var cpuCell = c.cpu_percent != null ? esc(c.cpu_percent.toFixed(1) + '%') : '<span style="color:var(--text-muted)">-</span>';
 
-          var memCell = '<span style="color:#555">-</span>';
+          var memCell = '<span style="color:var(--text-muted)">-</span>';
           if (c.memory_usage != null) {
             memCell = esc(fmtBytes(c.memory_usage));
             if (c.memory_limit) memCell += ' / ' + esc(fmtBytes(c.memory_limit));
           }
 
-          var toolCell = '<span style="color:#555">idle</span>';
+          var toolCell = '<span style="color:var(--text-muted)">idle</span>';
           if (c.current_tool) {
             var elapsed = '';
             if (c.tool_started_at) {
               var secs = Math.floor((Date.now() - new Date(c.tool_started_at).getTime()) / 1000);
               elapsed = ' (' + secs + 's)';
             }
-            toolCell = badge(c.current_tool, 'blue') + '<span style="color:#888;font-size:11px">' + esc(elapsed) + '</span>';
+            toolCell = badge(c.current_tool, 'blue') + '<span style="color:var(--text-secondary);font-size:11px">' + esc(elapsed) + '</span>';
           }
 
-          var hbCell = '<span style="color:#555">-</span>';
+          var hbCell = '<span style="color:var(--text-muted)">-</span>';
           if (c.heartbeat_age != null) {
             var age = c.heartbeat_age;
             var hbColor = age < 60 ? 'green' : age < 120 ? 'yellow' : 'red';

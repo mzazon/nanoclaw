@@ -31,7 +31,7 @@ export function usersPage(): string {
         }
 
         // Privilege hierarchy legend
-        let html = '<div style="margin-bottom:16px;font-size:12px;color:#888">' +
+        let html = '<div style="margin-bottom:16px;font-size:12px;color:var(--text-secondary)">' +
           'Privilege hierarchy: ' +
           badge('owner', 'purple') + ' &rarr; ' +
           badge('global_admin', 'blue') + ' &rarr; ' +
@@ -60,13 +60,13 @@ export function usersPage(): string {
 
           const groups = u.memberships.map(m =>
             '<a href="/dashboard/agent-groups?id=' + esc(m.agent_group_id) + '">' + esc(m.agent_group_name) + '</a>'
-          ).join(', ') || '<span style="color:#555">-</span>';
+          ).join(', ') || '<span style="color:var(--text-muted)">-</span>';
 
-          const dms = u.dmChannels.map(d => badge(d.channel_type, 'blue')).join(' ') || '<span style="color:#555">-</span>';
+          const dms = u.dmChannels.map(d => badge(d.channel_type, 'blue')).join(' ') || '<span style="color:var(--text-muted)">-</span>';
 
           html += '<tr>' +
             '<td><span style="font-weight:500">' + esc(u.display_name || friendlyHandle) + '</span>' +
-            '<div style="font-size:11px;color:#555">' + esc(friendlyHandle) + '</div></td>' +
+            '<div style="font-size:11px;color:var(--text-muted)">' + esc(friendlyHandle) + '</div></td>' +
             '<td>' + badge(userChannel, 'blue') + '</td>' +
             '<td>' + badge(u.privilege, privColor) + '</td>' +
             '<td>' + roles + '</td>' +

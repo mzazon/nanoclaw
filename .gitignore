@@ -43,3 +43,4 @@ agents-sdk-docs
 # Private docs — session handoffs and design specs belong in the vault, not the public repo
 docs/sessions/
 docs/superpowers/
+.superpowers/

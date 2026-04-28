@@ -8,10 +8,9 @@ export function errorsPage(): string {
     <h2 class="page-title">Error Log</h2>
     <div style="display:flex;gap:12px;margin-bottom:16px;align-items:center">
       <input id="filter" type="text" placeholder="Filter errors..."
-        style="background:#1a1a1a;color:#e0e0e0;border:1px solid #2a2a2a;border-radius:4px;padding:6px 10px;font-size:13px;flex:1;max-width:400px"
+        style="background:var(--bg-surface);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:6px 10px;font-size:13px;flex:1;max-width:400px"
         oninput="applyFilter()">
-      <button onclick="loadErrors()"
-        style="background:#1a2a3a;color:#7eb8da;border:1px solid #7eb8da;border-radius:4px;padding:6px 14px;font-size:13px;cursor:pointer;font-weight:600">Refresh</button>
+      <button onclick="loadErrors()" class="btn btn-outline">Refresh</button>
     </div>
     <div id="content"><div class="loading">Loading...</div></div>
     <script>
@@ -55,7 +54,7 @@ export function errorsPage(): string {
 
         var timeCell = e.timestamp
           ? '<span title="' + esc(e.timestamp) + '">' + timeAgo(e.timestamp) + '</span>'
-          : '<span style="color:#555">-</span>';
+          : '<span style="color:var(--text-muted)">-</span>';
 
         html += '<tr>' +
           '<td style="white-space:nowrap">' + timeCell + '</td>' +

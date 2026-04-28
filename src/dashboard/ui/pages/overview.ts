@@ -78,20 +78,20 @@ export function overviewPage(): string {
         var detailHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">';
 
         // By model
-        detailHtml += '<div class="detail-panel"><h4 style="color:#ccc;margin-bottom:8px">By Model</h4>';
+        detailHtml += '<div class="detail-panel"><h4 style="color:var(--text-secondary);margin-bottom:8px">By Model</h4>';
         var models = tokenData.byModel || {};
         detailHtml += '<table><tr><th>Model</th><th>Requests</th><th>In</th><th>Out</th><th>Cache Read</th><th>Cache Write</th></tr>';
         for (var m in models) {
           var mv = models[m];
           detailHtml += '<tr><td>' + badge(m, 'blue') + '</td><td>' + formatNum(mv.requests) + '</td>' +
             '<td>' + formatNum(mv.inputTokens) + '</td><td>' + formatNum(mv.outputTokens) + '</td>' +
-            '<td style="color:#4ade80">' + formatNum(mv.cacheReadTokens) + '</td>' +
-            '<td style="color:#facc15">' + formatNum(mv.cacheCreationTokens) + '</td></tr>';
+            '<td style="color:var(--status-success)">' + formatNum(mv.cacheReadTokens) + '</td>' +
+            '<td style="color:var(--status-warning)">' + formatNum(mv.cacheCreationTokens) + '</td></tr>';
         }
         detailHtml += '</table></div>';
 
         // By group
-        detailHtml += '<div class="detail-panel"><h4 style="color:#ccc;margin-bottom:8px">By Agent Group</h4>';
+        detailHtml += '<div class="detail-panel"><h4 style="color:var(--text-secondary);margin-bottom:8px">By Agent Group</h4>';
         var groups = tokenData.byGroup || {};
         detailHtml += '<table><tr><th>Group</th><th>Requests</th><th>In</th><th>Out</th><th>Cache Read</th><th>Cache Write</th></tr>';
         for (var gid in groups) {
@@ -99,8 +99,8 @@ export function overviewPage(): string {
           detailHtml += '<tr><td><a href="/dashboard/agent-groups?id=' + esc(gid) + '">' + esc(gv.name) + '</a></td>' +
             '<td>' + formatNum(gv.requests) + '</td>' +
             '<td>' + formatNum(gv.inputTokens) + '</td><td>' + formatNum(gv.outputTokens) + '</td>' +
-            '<td style="color:#4ade80">' + formatNum(gv.cacheReadTokens) + '</td>' +
-            '<td style="color:#facc15">' + formatNum(gv.cacheCreationTokens) + '</td></tr>';
+            '<td style="color:var(--status-success)">' + formatNum(gv.cacheReadTokens) + '</td>' +
+            '<td style="color:var(--status-warning)">' + formatNum(gv.cacheCreationTokens) + '</td></tr>';
         }
         detailHtml += '</table></div></div>';
         document.getElementById('token-detail').innerHTML = detailHtml;
@@ -114,7 +114,7 @@ export function overviewPage(): string {
           for (var ci = 0; ci < ctxSessions.length; ci++) {
             var cs = ctxSessions[ci];
             var pct = cs.usagePercent;
-            var barColor = pct > 80 ? '#f87171' : pct > 50 ? '#facc15' : '#4ade80';
+            var barColor = pct > 80 ? 'var(--status-error)' : pct > 50 ? 'var(--status-warning)' : 'var(--status-success)';
             var groupName = '';
             // try to find group name from overview data
             for (var gi = 0; gi < (data.agentGroups.list || []).length; gi++) {
@@ -125,15 +125,15 @@ export function overviewPage(): string {
             }
             ctxHtml += '<div class="detail-panel" style="margin-bottom:8px;padding:12px 16px">' +
               '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
-              '<div><span style="font-weight:500;color:#fff">' + esc(groupName || cs.agentGroupId) + '</span> ' +
+              '<div><span style="font-weight:500;color:var(--text-primary)">' + esc(groupName || cs.agentGroupId) + '</span> ' +
               badge(cs.model, 'blue') + '</div>' +
-              '<div style="font-size:12px;color:#888">' + formatNum(cs.contextTokens) + ' / ' + formatNum(cs.maxContext) + ' tokens' +
+              '<div style="font-size:12px;color:var(--text-secondary)">' + formatNum(cs.contextTokens) + ' / ' + formatNum(cs.maxContext) + ' tokens' +
               ' <span style="color:' + barColor + ';font-weight:600">' + pct + '%</span></div></div>' +
-              '<div style="background:#2a2a2a;border-radius:4px;height:8px;overflow:hidden">' +
+              '<div style="background:var(--border-default);border-radius:4px;height:8px;overflow:hidden">' +
               '<div style="background:' + barColor + ';height:100%;width:' + Math.min(pct, 100) + '%;border-radius:4px;transition:width 0.3s"></div></div>' +
-              '<div style="display:flex;gap:16px;margin-top:6px;font-size:11px;color:#666">' +
-              '<span>Cache read: <span style="color:#4ade80">' + formatNum(cs.cacheReadTokens) + '</span></span>' +
-              '<span>Cache write: <span style="color:#facc15">' + formatNum(cs.cacheCreationTokens) + '</span></span>' +
+              '<div style="display:flex;gap:16px;margin-top:6px;font-size:11px;color:var(--text-muted)">' +
+              '<span>Cache read: <span style="color:var(--status-success)">' + formatNum(cs.cacheReadTokens) + '</span></span>' +
+              '<span>Cache write: <span style="color:var(--status-warning)">' + formatNum(cs.cacheCreationTokens) + '</span></span>' +
               '<span>Output: ' + formatNum(cs.outputTokens) + '</span>' +
               '<span>' + timeAgo(cs.timestamp) + '</span></div></div>';
           }

@@ -18,13 +18,13 @@ export function hostHealthPage(): string {
         // Cards: uptime, load average, memory
         var load = data.load_avg || [0, 0, 0];
         var memPct = data.memory_percent || 0;
-        var memColor = memPct > 90 ? '#f87171' : memPct > 70 ? '#facc15' : '#4ade80';
+        var memColor = memPct > 90 ? 'var(--status-error)' : memPct > 70 ? 'var(--status-warning)' : 'var(--status-success)';
 
         document.getElementById('cards').innerHTML = [
           cardHtml('Host Uptime', formatUptime(data.uptime)),
           cardHtml('Load Average', load[0].toFixed(2), '1m / 5m / 15m: ' + load[0].toFixed(2) + ' / ' + load[1].toFixed(2) + ' / ' + load[2].toFixed(2)),
           cardHtml('Memory', formatBytes(data.memory_used) + ' / ' + formatBytes(data.memory_total),
-            progressBar(memPct, memColor) + '<div style="margin-top:4px;font-size:12px;color:#888">' + memPct + '% used</div>')
+            progressBar(memPct, memColor) + '<div style="margin-top:4px;font-size:12px;color:var(--text-secondary)">' + memPct + '% used</div>')
         ].join('');
 
         // Disk table
@@ -35,12 +35,12 @@ export function hostHealthPage(): string {
           var diskHtml = '<table><tr><th>Mount</th><th>Total</th><th>Used</th><th>Usage</th></tr>';
           for (var i = 0; i < disks.length; i++) {
             var d = disks[i];
-            var dColor = d.percent > 90 ? '#f87171' : d.percent > 70 ? '#facc15' : '#4ade80';
+            var dColor = d.percent > 90 ? 'var(--status-error)' : d.percent > 70 ? 'var(--status-warning)' : 'var(--status-success)';
             diskHtml += '<tr><td>' + esc(d.mount) + '</td>' +
               '<td>' + formatBytes(d.total) + '</td>' +
               '<td>' + formatBytes(d.used) + '</td>' +
               '<td style="min-width:200px">' + progressBar(d.percent, dColor) +
-              '<div style="font-size:11px;color:#888;margin-top:2px">' + d.percent + '%</div></td></tr>';
+              '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">' + d.percent + '%</div></td></tr>';
           }
           diskHtml += '</table>';
           document.getElementById('disk').innerHTML = diskHtml;
@@ -72,7 +72,7 @@ export function hostHealthPage(): string {
       return b + ' B';
     }
     function progressBar(pct, color) {
-      return '<div style="background:#222;border-radius:4px;height:20px;margin-top:4px">' +
+      return '<div style="background:var(--bg-hover);border-radius:4px;height:20px;margin-top:4px">' +
         '<div style="background:' + color + ';width:' + pct + '%;height:100%;border-radius:4px;min-width:2px"></div></div>';
     }
     </script>

@@ -34,7 +34,7 @@ export function agentGroupsPage(): string {
             '<td>' + esc(g.folder) + '</td>' +
             '<td>' + g.sessionCount + '</td>' +
             '<td>' + (g.runningSessions > 0 ? badge(g.runningSessions, 'green') : badge('0', 'gray')) + '</td>' +
-            '<td style="color:#666">' + esc(g.created_at) + '</td></tr>'
+            '<td style="color:var(--text-muted)">' + esc(g.created_at) + '</td></tr>'
           ).join('') + '</table>';
       } catch (e) {
         document.getElementById('content').innerHTML = '<div class="loading">Error: ' + esc(e.message) + '</div>';
@@ -75,7 +75,7 @@ export function agentGroupsPage(): string {
             const statusBadge = s.status === 'active' ? badge('active', 'green') : badge(s.status, 'gray');
             const containerBadge = s.container_status === 'running' ? badge('running', 'green') :
               s.container_status === 'idle' ? badge('idle', 'yellow') : badge(s.container_status, 'gray');
-            html += '<tr><td style="font-size:11px;color:#666" title="' + esc(s.id) + '">' + esc(truncId(s.id, 28)) + '</td><td>' + statusBadge + '</td><td>' + containerBadge + '</td><td>' + timeAgo(s.last_active) + '</td></tr>';
+            html += '<tr><td style="font-size:11px;color:var(--text-muted)" title="' + esc(s.id) + '">' + esc(truncId(s.id, 28)) + '</td><td>' + statusBadge + '</td><td>' + containerBadge + '</td><td>' + timeAgo(s.last_active) + '</td></tr>';
           }
           html += '</table>';
         }
@@ -88,7 +88,7 @@ export function agentGroupsPage(): string {
             const wName = w.mg_name || friendlyId(w.channel_type, w.platform_id);
             const policy = w.unknown_sender_policy || 'strict';
             html += '<tr><td>' + badge(w.channel_type, 'blue') + '</td>' +
-              '<td><span style="font-weight:500">' + esc(wName) + '</span><div style="font-size:11px;color:#555" title="' + esc(w.platform_id) + '">' + esc(truncId(w.platform_id, 35)) + '</div></td>' +
+              '<td><span style="font-weight:500">' + esc(wName) + '</span><div style="font-size:11px;color:var(--text-muted)" title="' + esc(w.platform_id) + '">' + esc(truncId(w.platform_id, 35)) + '</div></td>' +
               '<td>' + badge(policy, policy === 'public' ? 'green' : policy === 'strict' ? 'red' : 'yellow') + '</td>' +
               '<td>' + w.priority + '</td></tr>';
           }
