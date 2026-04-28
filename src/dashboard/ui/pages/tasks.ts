@@ -21,11 +21,12 @@ export function tasksPage(): string {
         var html = '<table><tr>' +
           '<th>Status</th>' +
           '<th>Agent Group</th>' +
+          '<th>Channel</th>' +
           '<th>Prompt</th>' +
           '<th>Schedule</th>' +
           '<th>Next Run</th>' +
           '<th>Last Run</th>' +
-          '<th>Tries</th>' +
+          '<th>Total Runs</th>' +
           '<th>Actions</th>' +
           '</tr>';
 
@@ -50,26 +51,33 @@ export function tasksPage(): string {
             ? '<span title="' + esc(t.last_completed) + '">' + timeAgo(t.last_completed) + '</span>'
             : '<span style="color:var(--text-muted)">never</span>';
 
+          var channelCell = t.channel_type
+            ? badge(t.channel_type, 'blue') + ' <span style="color:var(--text-muted);font-size:11px">' + esc(friendlyId(t.channel_type, t.platform_id)) + '</span>'
+            : '<span style="color:var(--text-muted)">—</span>';
+
+          var detailUrl = '/dashboard/tasks/' + encodeURIComponent(t.id);
+
           var actions = '';
           if (t.status === 'pending') {
-            actions += '<button class="btn btn-warning btn-sm" onclick="taskAction(\\'' + escAttr(t.id) + '\\', \\'pause\\')">Pause</button> ';
+            actions += '<button class="btn btn-warning btn-sm" onclick="event.stopPropagation();taskAction(\\'' + escAttr(t.id) + '\\', \\'pause\\')">Pause</button> ';
           }
           if (t.status === 'paused') {
-            actions += '<button class="btn btn-success btn-sm" onclick="taskAction(\\'' + escAttr(t.id) + '\\', \\'resume\\')">Resume</button> ';
+            actions += '<button class="btn btn-success btn-sm" onclick="event.stopPropagation();taskAction(\\'' + escAttr(t.id) + '\\', \\'resume\\')">Resume</button> ';
           }
           if (t.status !== 'completed') {
-            actions += '<button class="btn btn-danger btn-sm" onclick="taskAction(\\'' + escAttr(t.id) + '\\', \\'cancel\\')">Cancel</button>';
+            actions += '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();taskAction(\\'' + escAttr(t.id) + '\\', \\'cancel\\')">Cancel</button>';
           }
 
-          html += '<tr>' +
+          html += '<tr class="clickable" onclick="location.href=\\'' + detailUrl + '\\'">' +
             '<td>' + badge(t.status, statusColor) + '</td>' +
-            '<td><a href="/dashboard/agent-groups?id=' + esc(t.agent_group_id) + '">' + esc(t.agent_group_name) + '</a></td>' +
+            '<td><a href="/dashboard/agent-groups?id=' + esc(t.agent_group_id) + '" onclick="event.stopPropagation()">' + esc(t.agent_group_name) + '</a></td>' +
+            '<td>' + channelCell + '</td>' +
             '<td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(t.prompt_summary) + '">' + esc(t.prompt_summary) + '</td>' +
             '<td>' + scheduleCell + '</td>' +
             '<td>' + nextRun + '</td>' +
             '<td>' + lastRun + '</td>' +
-            '<td>' + esc(String(t.tries)) + '</td>' +
-            '<td style="white-space:nowrap">' + actions + '</td>' +
+            '<td>' + esc(String(t.total_runs)) + '</td>' +
+            '<td style="white-space:nowrap" onclick="event.stopPropagation()">' + actions + '</td>' +
             '</tr>';
         }
         html += '</table>';

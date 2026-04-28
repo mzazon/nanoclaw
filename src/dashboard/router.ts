@@ -20,14 +20,16 @@ import { logsPage } from './ui/pages/logs.js';
 import { hostHealthPage } from './ui/pages/host-health.js';
 import { containersPage } from './ui/pages/containers.js';
 import { tasksPage } from './ui/pages/tasks.js';
+import { taskDetailPage } from './ui/pages/task-detail.js';
 import { credentialsPage } from './ui/pages/credentials.js';
 import { errorsPage } from './ui/pages/errors.js';
 import { auditPage } from './ui/pages/audit.js';
 import { settingsPage } from './ui/pages/settings.js';
 import { mountsPage } from './ui/pages/mounts.js';
-import { scanScheduledTasks, findTaskSession } from './tasks-db.js';
-import { cancelTask, pauseTask, resumeTask } from '../modules/scheduling/db.js';
+import { scanScheduledTasks, findTaskSession, getTaskDetail, updateTaskChannel } from './tasks-db.js';
+import { cancelTask, pauseTask, resumeTask, updateTask } from '../modules/scheduling/db.js';
 import { getAllAgentGroups } from '../db/agent-groups.js';
+import { getAllMessagingGroups } from '../db/messaging-groups.js';
 import { DATA_DIR, GROUPS_DIR, MOUNT_ALLOWLIST_PATH, ASSISTANT_NAME, CONTAINER_INSTALL_LABEL, ONECLI_URL } from '../config.js';
 import { getActiveContainerEntries } from '../container-runner.js';
 import { getDashboardSecret, setDashboardSecret } from './server.js';
@@ -50,6 +52,7 @@ export async function dispatch(
   urlPath: string,
   params: URLSearchParams,
   res: http.ServerResponse,
+  req?: http.IncomingMessage,
 ): Promise<void> {
   const s = getSnapshot();
 
@@ -353,6 +356,112 @@ export async function dispatch(
     return json(res, scanScheduledTasks(sessionsDir, groupMap));
   }
 
+  // Task detail — full detail for a single task
+  if (method === 'GET' && urlPath === '/api/tasks/detail') {
+    const taskId = params.get('id');
+    if (!taskId) return json(res, { error: 'id query param required' }, 400);
+    const sessionsDir = path.join(DATA_DIR, 'v2-sessions');
+    const groups = getAllAgentGroups();
+    const groupMap = new Map(groups.map((g) => [g.id, g.name]));
+    const detail = getTaskDetail(sessionsDir, taskId, groupMap);
+    if (!detail) return json(res, { error: 'Task not found' }, 404);
+    return json(res, detail);
+  }
+
+  // Messaging groups — flat list for channel picker
+  if (method === 'GET' && urlPath === '/api/messaging-groups') {
+    const groups = getAllMessagingGroups();
+    return json(res, groups);
+  }
+
+  // Task update — edit prompt, schedule, channel
+  if (method === 'POST' && urlPath.match(/^\/api\/tasks\/[^/]+\/update$/)) {
+    const taskId = decodeURIComponent(urlPath.split('/')[3]);
+    const sessionsDir = path.join(DATA_DIR, 'v2-sessions');
+
+    // Read request body
+    let body: {
+      prompt?: string;
+      recurrence?: string | null;
+      channel_type?: string | null;
+      platform_id?: string | null;
+      thread_id?: string | null;
+    } = {};
+    if (req) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(chunk as Buffer);
+      }
+      try {
+        body = JSON.parse(Buffer.concat(chunks).toString()) as typeof body;
+      } catch {
+        return json(res, { error: 'Invalid JSON body' }, 400);
+      }
+    }
+
+    // Find the task DB
+    const found = findTaskSession(sessionsDir, taskId);
+    if (!found) return json(res, { error: 'Task not found' }, 404);
+
+    const db = new Database(found.dbPath);
+    try {
+      // Check status before proceeding
+      const row = db
+        .prepare("SELECT status FROM messages_in WHERE id = ? AND kind = 'task' LIMIT 1")
+        .get(taskId) as { status: string } | undefined;
+      if (!row) return json(res, { error: 'Task not found' }, 404);
+      if (row.status === 'processing') return json(res, { error: 'Cannot edit a task that is currently processing' }, 409);
+
+      // Validate cron if provided
+      if (body.recurrence) {
+        try {
+          const { CronExpressionParser } = await import('cron-parser');
+          CronExpressionParser.parse(body.recurrence);
+        } catch (e) {
+          return json(res, { error: 'Invalid cron expression: ' + String(e) }, 400);
+        }
+      }
+
+      // Build processAfter when cron changes
+      let processAfter: string | undefined;
+      if (body.recurrence) {
+        try {
+          const { CronExpressionParser } = await import('cron-parser');
+          const nextIso = CronExpressionParser.parse(body.recurrence).next().toISOString();
+          if (nextIso) processAfter = nextIso;
+        } catch {
+          // Should not reach here after validation above
+        }
+      }
+
+      // Apply prompt/schedule update
+      const taskUpdate: { prompt?: string; recurrence?: string | null; processAfter?: string } = {};
+      if (body.prompt !== undefined) taskUpdate.prompt = body.prompt;
+      if (body.recurrence !== undefined) taskUpdate.recurrence = body.recurrence;
+      if (processAfter !== undefined) taskUpdate.processAfter = processAfter;
+      if (Object.keys(taskUpdate).length > 0) {
+        updateTask(db, taskId, taskUpdate);
+      }
+
+      // Apply channel update if any of the channel fields are present
+      if (body.channel_type !== undefined || body.platform_id !== undefined || body.thread_id !== undefined) {
+        updateTaskChannel(
+          db,
+          taskId,
+          body.channel_type ?? null,
+          body.platform_id ?? null,
+          body.thread_id ?? null,
+        );
+      }
+
+      return json(res, { ok: true });
+    } catch (err) {
+      return json(res, { error: String(err) }, 500);
+    } finally {
+      db.close();
+    }
+  }
+
   // Task mutations — pause/resume/cancel
   if (method === 'POST' && urlPath.match(/^\/api\/tasks\/[^/]+\/(pause|resume|cancel)$/)) {
     const parts = urlPath.split('/');
@@ -426,6 +535,7 @@ export async function dispatch(
     if (urlPath === '/dashboard/users') return html(res, usersPage());
     if (urlPath === '/dashboard/logs') return html(res, logsPage());
     if (urlPath === '/dashboard/tasks') return html(res, tasksPage());
+    if (urlPath.match(/^\/dashboard\/tasks\/[^/]+$/)) return html(res, taskDetailPage());
     if (urlPath === '/dashboard/credentials') return html(res, credentialsPage());
     if (urlPath === '/dashboard/errors') return html(res, errorsPage());
     if (urlPath === '/dashboard/audit') return html(res, auditPage());

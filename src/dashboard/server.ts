@@ -109,7 +109,7 @@ export function startDashboard(config: DashboardConfig = {}): void {
     }
 
     try {
-      await dispatch(method, path, url.searchParams, res);
+      await dispatch(method, path, url.searchParams, res, req);
     } catch {
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
