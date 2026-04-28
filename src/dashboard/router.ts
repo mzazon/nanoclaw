@@ -28,7 +28,7 @@ import { mountsPage } from './ui/pages/mounts.js';
 import { scanScheduledTasks, findTaskSession } from './tasks-db.js';
 import { cancelTask, pauseTask, resumeTask } from '../modules/scheduling/db.js';
 import { getAllAgentGroups } from '../db/agent-groups.js';
-import { DATA_DIR, GROUPS_DIR, ASSISTANT_NAME, CONTAINER_INSTALL_LABEL, ONECLI_URL } from '../config.js';
+import { DATA_DIR, GROUPS_DIR, MOUNT_ALLOWLIST_PATH, ASSISTANT_NAME, CONTAINER_INSTALL_LABEL, ONECLI_URL } from '../config.js';
 import { getActiveContainerEntries } from '../container-runner.js';
 import { getDashboardSecret, setDashboardSecret } from './server.js';
 import { updateEnvSecret, parseAllEnvKeys, redactEnvKeys } from './token-rotate-helpers.js';
@@ -88,6 +88,9 @@ export async function dispatch(
 
   if (method === 'GET' && urlPath === '/api/activity') {
     if (!s) return json(res, { error: 'No data yet' }, 503);
+    const range = params.get('range') || '24h';
+    if (range === '7d') return json(res, { buckets: s.activity_7d || [] });
+    if (range === '30d') return json(res, { buckets: s.activity_30d || [] });
     return json(res, { buckets: s.activity });
   }
 
@@ -286,6 +289,62 @@ export async function dispatch(
     return json(res, s.pending_questions || []);
   }
 
+  // Mounts — live read from allowlist file + cross-reference agent group container configs
+  if (method === 'GET' && urlPath === '/api/mounts') {
+    // Load the allowlist
+    let allowlist: { path: string; allowReadWrite: boolean }[] = [];
+    try {
+      if (fs.existsSync(MOUNT_ALLOWLIST_PATH)) {
+        allowlist = JSON.parse(fs.readFileSync(MOUNT_ALLOWLIST_PATH, 'utf-8'));
+      }
+    } catch {
+      // allowlist file missing or malformed — return empty
+    }
+
+    // Scan agent group container.json files to find additionalMounts per group
+    const groups = getAllAgentGroups();
+    // Map from hostPath → list of agent group names that use it
+    const usageMap = new Map<string, string[]>();
+    for (const group of groups) {
+      // Path traversal guard
+      const groupDir = path.resolve(GROUPS_DIR, group.folder);
+      if (!groupDir.startsWith(path.resolve(GROUPS_DIR) + path.sep)) continue;
+      const containerJsonPath = path.join(groupDir, 'container.json');
+      try {
+        if (!fs.existsSync(containerJsonPath)) continue;
+        const cfg = JSON.parse(fs.readFileSync(containerJsonPath, 'utf-8')) as {
+          additionalMounts?: { hostPath: string }[];
+        };
+        for (const m of cfg.additionalMounts || []) {
+          if (!m.hostPath) continue;
+          const existing = usageMap.get(m.hostPath) || [];
+          existing.push(group.name);
+          usageMap.set(m.hostPath, existing);
+        }
+      } catch {
+        /* skip */
+      }
+    }
+
+    // Build response: allowlist entries enriched with usage
+    const entries = allowlist.map((entry) => ({
+      path: entry.path,
+      allowReadWrite: entry.allowReadWrite,
+      usedBy: usageMap.get(entry.path) || [],
+    }));
+
+    // Also include any hostPaths used by groups but NOT in the allowlist
+    const allowlistPaths = new Set(allowlist.map((e) => e.path));
+    const unlisted: { path: string; allowReadWrite: boolean; usedBy: string[] }[] = [];
+    for (const [hostPath, groupNames] of usageMap) {
+      if (!allowlistPaths.has(hostPath)) {
+        unlisted.push({ path: hostPath, allowReadWrite: false, usedBy: groupNames });
+      }
+    }
+
+    return json(res, { entries, unlisted });
+  }
+
   // Tasks — live read (queries session DBs directly, not from snapshot)
   if (method === 'GET' && urlPath === '/api/tasks') {
     const sessionsDir = path.join(DATA_DIR, 'v2-sessions');
@@ -371,6 +430,7 @@ export async function dispatch(
     if (urlPath === '/dashboard/errors') return html(res, errorsPage());
     if (urlPath === '/dashboard/audit') return html(res, auditPage());
     if (urlPath === '/dashboard/settings') return html(res, settingsPage());
+    if (urlPath === '/dashboard/mounts') return html(res, mountsPage());
 
     if (urlPath === '/') {
       res.writeHead(302, { Location: '/dashboard' });

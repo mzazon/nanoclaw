@@ -24,6 +24,7 @@ import { log } from './log.js';
 import { getActiveContainerEntries } from './container-runner.js';
 import { heartbeatPath } from './session-manager.js';
 import { scanScheduledTasks } from './dashboard/tasks-db.js';
+import { getDashboardSecret } from './dashboard/server.js';
 
 interface PusherConfig {
   port: number;
@@ -63,6 +64,9 @@ export function stopDashboardPusher(): void {
 
 /** Fire-and-forget POST to the dashboard. */
 function postJson(config: PusherConfig, urlPath: string, data: unknown): void {
+  // Use getDashboardSecret() per request so token rotation is reflected immediately.
+  // Falls back to config.secret (the value at startup) if the in-memory secret is null.
+  const secret = getDashboardSecret() ?? config.secret;
   const body = JSON.stringify(data);
   const req = http.request({
     hostname: '127.0.0.1',
@@ -72,7 +76,7 @@ function postJson(config: PusherConfig, urlPath: string, data: unknown): void {
     headers: {
       'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(body),
-      Authorization: `Bearer ${config.secret}`,
+      Authorization: `Bearer ${secret}`,
     },
   });
   req.on('error', () => {});
@@ -141,7 +145,7 @@ async function collectSnapshot(): Promise<Record<string, unknown>> {
     users: collectUsers(),
     tokens: collectTokens(),
     context_windows: collectContextWindows(),
-    activity: collectActivity(),
+    ...collectAllActivity(),
     messages: collectMessages(),
     host_health: collectHostHealth(),
     containers: await collectContainers(),
@@ -771,19 +775,44 @@ function collectScheduledTasks() {
   return scanScheduledTasks(sessionsDir, groupMap);
 }
 
-function collectActivity() {
+/**
+ * Collect activity for 24h (hourly), 7d (daily), and 30d (daily) in a single
+ * pass over the session DBs. Uses the 30d cutoff and accumulates into all three
+ * bucket maps simultaneously.
+ */
+function collectAllActivity(): {
+  activity: { hour: string; inbound: number; outbound: number }[];
+  activity_7d: { hour: string; inbound: number; outbound: number }[];
+  activity_30d: { hour: string; inbound: number; outbound: number }[];
+} {
   const now = Date.now();
-  const buckets: Record<string, { inbound: number; outbound: number }> = {};
 
+  // Pre-fill hourly buckets for the last 24h
+  const hourly: Record<string, { inbound: number; outbound: number }> = {};
   for (let i = 0; i < 24; i++) {
     const key = new Date(now - i * 3600000).toISOString().slice(0, 13);
-    buckets[key] = { inbound: 0, outbound: 0 };
+    hourly[key] = { inbound: 0, outbound: 0 };
+  }
+
+  // Pre-fill daily buckets for the last 7d and 30d
+  const daily7: Record<string, { inbound: number; outbound: number }> = {};
+  const daily30: Record<string, { inbound: number; outbound: number }> = {};
+  for (let i = 0; i < 30; i++) {
+    const key = new Date(now - i * 86400000).toISOString().slice(0, 10);
+    daily30[key] = { inbound: 0, outbound: 0 };
+    if (i < 7) daily7[key] = { inbound: 0, outbound: 0 };
   }
 
   const sessionsDir = path.join(DATA_DIR, 'v2-sessions');
-  if (!fs.existsSync(sessionsDir)) return toBucketArray(buckets);
+  if (!fs.existsSync(sessionsDir)) {
+    return {
+      activity: toBucketArray(hourly),
+      activity_7d: toBucketArray(daily7),
+      activity_30d: toBucketArray(daily30),
+    };
+  }
 
-  const cutoff = new Date(now - 86400000).toISOString();
+  const cutoff30 = new Date(now - 30 * 86400000).toISOString();
 
   try {
     for (const agDir of fs.readdirSync(sessionsDir).filter((d) => d.startsWith('ag-'))) {
@@ -798,12 +827,15 @@ function collectActivity() {
           try {
             const db = new Database(dbPath, { readonly: true });
             const table = direction === 'outbound' ? 'messages_out' : 'messages_in';
-            const rows = db.prepare(`SELECT timestamp FROM ${table} WHERE timestamp > ?`).all(cutoff) as {
+            const rows = db.prepare(`SELECT timestamp FROM ${table} WHERE timestamp > ?`).all(cutoff30) as {
               timestamp: string;
             }[];
             for (const row of rows) {
-              const key = row.timestamp.slice(0, 13);
-              if (buckets[key]) buckets[key][direction]++;
+              const hourKey = row.timestamp.slice(0, 13);
+              const dayKey = row.timestamp.slice(0, 10);
+              if (hourly[hourKey]) hourly[hourKey][direction]++;
+              if (daily7[dayKey] !== undefined) daily7[dayKey][direction]++;
+              if (daily30[dayKey] !== undefined) daily30[dayKey][direction]++;
             }
             db.close();
           } catch {
@@ -816,7 +848,11 @@ function collectActivity() {
     /* skip */
   }
 
-  return toBucketArray(buckets);
+  return {
+    activity: toBucketArray(hourly),
+    activity_7d: toBucketArray(daily7),
+    activity_30d: toBucketArray(daily30),
+  };
 }
 
 function toBucketArray(buckets: Record<string, { inbound: number; outbound: number }>) {

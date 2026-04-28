@@ -538,12 +538,30 @@ export function metricCard(label: string, value: string | number, sub?: string):
 /** Build a status badge element. */
 export function statusBadge(status: string): string {
   const colorMap: Record<string, string> = {
-    running: 'green', active: 'green', live: 'green', connected: 'green', completed: 'green', approved: 'green', success: 'green',
-    idle: 'yellow', paused: 'yellow', pending: 'yellow', registered: 'yellow', warning: 'yellow',
-    stopped: 'gray', offline: 'gray', none: 'gray', unknown: 'gray',
-    error: 'red', failed: 'red', denied: 'red', disconnected: 'red',
-    info: 'blue', processing: 'blue',
-    admin: 'purple', owner: 'purple',
+    running: 'green',
+    active: 'green',
+    live: 'green',
+    connected: 'green',
+    completed: 'green',
+    approved: 'green',
+    success: 'green',
+    idle: 'yellow',
+    paused: 'yellow',
+    pending: 'yellow',
+    registered: 'yellow',
+    warning: 'yellow',
+    stopped: 'gray',
+    offline: 'gray',
+    none: 'gray',
+    unknown: 'gray',
+    error: 'red',
+    failed: 'red',
+    denied: 'red',
+    disconnected: 'red',
+    info: 'blue',
+    processing: 'blue',
+    admin: 'purple',
+    owner: 'purple',
   };
   const color = colorMap[status.toLowerCase()] ?? 'gray';
   return `<span class="badge badge-${color}">${status}</span>`;

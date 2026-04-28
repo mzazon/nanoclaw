@@ -18,12 +18,61 @@ export function overviewPage(): string {
     <h3 class="section-title">Context Windows</h3>
     <div id="context"><div class="loading">Loading...</div></div>
 
-    <h3 class="section-title">Message Activity (24h)</h3>
+    <h3 class="section-title">Message Activity</h3>
+    <div class="tabs" id="activity-tabs">
+      <span class="tab active" data-range="24h" onclick="switchRange('24h')">24h</span>
+      <span class="tab" data-range="7d" onclick="switchRange('7d')">7d</span>
+      <span class="tab" data-range="30d" onclick="switchRange('30d')">30d</span>
+    </div>
     <div id="chart" class="chart-container"><div class="loading">Loading...</div></div>
 
     <h3 class="section-title">Agent Groups</h3>
     <div id="groups"></div>
     <script>
+    var currentRange = '24h';
+
+    function switchRange(range) {
+      currentRange = range;
+      document.querySelectorAll('#activity-tabs .tab').forEach(function(t) {
+        t.classList.toggle('active', t.dataset.range === range);
+      });
+      loadActivityChart(range);
+    }
+
+    async function loadActivityChart(range) {
+      document.getElementById('chart').innerHTML = '<div class="loading">Loading...</div>';
+      try {
+        var activity = await api('/api/activity?range=' + range);
+        renderActivityChart(activity.buckets || [], range);
+      } catch (e) {
+        document.getElementById('chart').innerHTML = '<div class="loading">Error: ' + esc(e.message) + '</div>';
+      }
+    }
+
+    function renderActivityChart(buckets, range) {
+      var maxVal = Math.max(1, Math.max.apply(null, buckets.map(function(b) { return Math.max(b.inbound, b.outbound); })));
+      if (buckets.length === 0) {
+        document.getElementById('chart').innerHTML = '<div class="loading">No activity data</div>';
+        return;
+      }
+      var isDaily = (range === '7d' || range === '30d');
+      document.getElementById('chart').innerHTML =
+        '<div style="display:flex;gap:12px;margin-bottom:10px;font-size:11px">' + badge('inbound', 'blue') + ' ' + badge('outbound', 'green') + '</div>' +
+        buckets.map(function(b) {
+          var label = isDaily
+            ? b.hour.slice(5, 10).replace('-', '/')
+            : b.hour.slice(11, 13) + ':00';
+          var inW = Math.max(2, (b.inbound / maxVal) * 300);
+          var outW = Math.max(2, (b.outbound / maxVal) * 300);
+          return '<div class="chart-bar-row">' +
+            '<span class="chart-label" style="width:50px">' + label + '</span>' +
+            '<div class="chart-bar chart-bar-in" style="width:' + inW + 'px"></div>' +
+            '<div class="chart-bar chart-bar-out" style="width:' + outW + 'px"></div>' +
+            '<span class="chart-value">' + b.inbound + '/' + b.outbound + '</span>' +
+            '</div>';
+        }).join('');
+    }
+
     (async () => {
       try {
         const [data, activity, tokenData, ctxData, health] = await Promise.all([
@@ -140,26 +189,8 @@ export function overviewPage(): string {
           document.getElementById('context').innerHTML = ctxHtml;
         }
 
-        // Activity chart
-        var buckets = activity.buckets || [];
-        var maxVal = Math.max(1, ...buckets.map(function(b) { return Math.max(b.inbound, b.outbound); }));
-        if (buckets.length === 0) {
-          document.getElementById('chart').innerHTML = '<div class="loading">No activity data</div>';
-        } else {
-          document.getElementById('chart').innerHTML =
-            '<div style="display:flex;gap:12px;margin-bottom:10px;font-size:11px">' + badge('inbound', 'blue') + ' ' + badge('outbound', 'green') + '</div>' +
-            buckets.map(function(b) {
-              var hour = b.hour.slice(11, 13) + ':00';
-              var inW = Math.max(2, (b.inbound / maxVal) * 300);
-              var outW = Math.max(2, (b.outbound / maxVal) * 300);
-              return '<div class="chart-bar-row">' +
-                '<span class="chart-label">' + hour + '</span>' +
-                '<div class="chart-bar chart-bar-in" style="width:' + inW + 'px"></div>' +
-                '<div class="chart-bar chart-bar-out" style="width:' + outW + 'px"></div>' +
-                '<span class="chart-value">' + b.inbound + '/' + b.outbound + '</span>' +
-                '</div>';
-            }).join('');
-        }
+        // Activity chart — initial 24h render
+        renderActivityChart(activity.buckets || [], '24h');
 
         // Groups list
         var groupsList = data.agentGroups.list || [];
