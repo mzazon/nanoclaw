@@ -16,6 +16,8 @@ export interface DashboardSnapshot {
   tokens: TokenSummary;
   context_windows: ContextWindowInfo[];
   activity: ActivityBucket[];
+  activity_7d?: ActivityBucket[];
+  activity_30d?: ActivityBucket[];
   messages?: SessionMessages[];
   host_health?: HostHealth;
   containers?: ContainerDetail[];
@@ -212,6 +214,38 @@ export interface ScheduledTask {
   process_after?: string;
   last_completed?: string;
   tries: number;
+  channel_type?: string;
+  platform_id?: string;
+  total_runs: number;
+}
+
+export interface TaskRun {
+  id: string;
+  timestamp: string;
+  status: string;
+  tries: number;
+  process_after?: string;
+}
+
+export interface TaskDetail {
+  id: string;
+  session_id: string;
+  agent_group_id: string;
+  agent_group_name: string;
+  series_id: string;
+  status: string;
+  prompt: string;
+  recurrence?: string;
+  recurrence_human?: string;
+  process_after?: string;
+  channel_type?: string;
+  platform_id?: string;
+  thread_id?: string;
+  total_runs: number;
+  successful_runs: number;
+  failed_runs: number;
+  last_run?: string;
+  runs: TaskRun[];
 }
 
 export interface CredentialsSummary {
