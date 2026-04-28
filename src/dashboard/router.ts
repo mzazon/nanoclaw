@@ -2,6 +2,7 @@
  * Dashboard route dispatch.
  * All data comes from the in-memory store (populated via POST /api/ingest).
  */
+import crypto from 'crypto';
 import type http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -22,11 +23,15 @@ import { tasksPage } from './ui/pages/tasks.js';
 import { credentialsPage } from './ui/pages/credentials.js';
 import { errorsPage } from './ui/pages/errors.js';
 import { auditPage } from './ui/pages/audit.js';
+import { settingsPage } from './ui/pages/settings.js';
+import { mountsPage } from './ui/pages/mounts.js';
 import { scanScheduledTasks, findTaskSession } from './tasks-db.js';
 import { cancelTask, pauseTask, resumeTask } from '../modules/scheduling/db.js';
 import { getAllAgentGroups } from '../db/agent-groups.js';
-import { DATA_DIR, GROUPS_DIR } from '../config.js';
+import { DATA_DIR, GROUPS_DIR, ASSISTANT_NAME, CONTAINER_INSTALL_LABEL, ONECLI_URL } from '../config.js';
 import { getActiveContainerEntries } from '../container-runner.js';
+import { getDashboardSecret, setDashboardSecret } from './server.js';
+import { updateEnvSecret, parseAllEnvKeys, redactEnvKeys } from './token-rotate-helpers.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -312,6 +317,44 @@ export async function dispatch(
     }
   }
 
+  // Token rotation
+  if (method === 'POST' && urlPath === '/api/token/rotate') {
+    const newToken = crypto.randomBytes(32).toString('hex');
+    setDashboardSecret(newToken);
+    const envPath = path.join(process.cwd(), '.env');
+    try {
+      updateEnvSecret(envPath, 'DASHBOARD_SECRET', newToken);
+    } catch {
+      // .env write failure is non-fatal — in-memory secret is already updated
+    }
+    return json(res, { ok: true, token: newToken });
+  }
+
+  // Settings API — runtime config + .env viewer
+  if (method === 'GET' && urlPath === '/api/settings') {
+    const envPath = path.join(process.cwd(), '.env');
+    let envKeys: Record<string, string> = {};
+    try {
+      const content = fs.readFileSync(envPath, 'utf-8');
+      envKeys = redactEnvKeys(parseAllEnvKeys(content));
+    } catch {
+      // .env not found — return empty
+    }
+
+    return json(res, {
+      runtimeConfig: {
+        assistantName: ASSISTANT_NAME,
+        dashboardPort: process.env.DASHBOARD_PORT || '3100',
+        containerInstallLabel: CONTAINER_INSTALL_LABEL,
+        onecliUrl: ONECLI_URL || null,
+        dataDir: DATA_DIR,
+        nodeVersion: process.version,
+        uptime: Math.floor(process.uptime()),
+      },
+      envKeys,
+    });
+  }
+
   // --- HTML pages ---
   if (method === 'GET') {
     if (urlPath === '/dashboard') return html(res, overviewPage());
@@ -327,6 +370,7 @@ export async function dispatch(
     if (urlPath === '/dashboard/credentials') return html(res, credentialsPage());
     if (urlPath === '/dashboard/errors') return html(res, errorsPage());
     if (urlPath === '/dashboard/audit') return html(res, auditPage());
+    if (urlPath === '/dashboard/settings') return html(res, settingsPage());
 
     if (urlPath === '/') {
       res.writeHead(302, { Location: '/dashboard' });

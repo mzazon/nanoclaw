@@ -5,6 +5,21 @@ export function messagesPage(): string {
     'Messages',
     '/dashboard/messages',
     `
+    <style>
+      .msg-row { display: flex; margin-bottom: var(--space-2); }
+      .msg-row.inbound { justify-content: flex-start; }
+      .msg-row.outbound { justify-content: flex-end; }
+      .msg-row.system { justify-content: center; }
+      .msg-bubble { max-width: 75%; padding: var(--space-3) var(--space-4); border-radius: var(--radius-lg); font-size: var(--font-size-base); line-height: 1.5; }
+      .msg-inbound { background: var(--bg-surface); border: 1px solid var(--border-subtle); }
+      .msg-outbound { background: var(--accent-subtle); border: 1px solid var(--border-subtle); }
+      .msg-system { max-width: 90%; margin: 0 auto; background: var(--bg-inset); border: 1px dashed var(--border-default); text-align: center; font-size: var(--font-size-sm); }
+      .msg-sender { font-size: var(--font-size-xs); color: var(--text-muted); margin-bottom: 2px; font-weight: 500; }
+      .msg-time { font-size: var(--font-size-xs); color: var(--text-muted); margin-top: 4px; }
+      .msg-kind { font-size: var(--font-size-xs); color: var(--text-muted); font-style: italic; margin-bottom: 2px; }
+      .msg-content { color: var(--text-primary); white-space: pre-wrap; word-break: break-word; }
+      #conv-wrap { padding: 8px 0; }
+    </style>
     <h2 class="page-title">Messages</h2>
     <div id="selector" style="margin-bottom:16px">
       <span style="color:var(--text-secondary);font-size:13px">Select a session from the </span>
@@ -47,7 +62,7 @@ export function messagesPage(): string {
       try {
         const data = await api('/api/messages?agentGroupId=' + encodeURIComponent(agentGroupId) + '&sessionId=' + encodeURIComponent(sessionId));
 
-        // Interleave inbound and outbound by timestamp
+        // Merge inbound + outbound, sort by timestamp (ISO strings sort lexicographically)
         const all = [
           ...data.inbound.map(m => ({ ...m, direction: 'inbound' })),
           ...data.outbound.map(m => ({ ...m, direction: 'outbound' })),
@@ -58,25 +73,53 @@ export function messagesPage(): string {
           return;
         }
 
-        let html = '<table><tr><th>Time</th><th>Direction</th><th>Kind</th><th>Content</th></tr>';
+        let html = '<div id="conv-wrap">';
         for (const m of all) {
-          const dirBadge = m.direction === 'inbound' ? badge('IN', 'blue') : badge('OUT', 'green');
+          const isSystem = m.kind === 'system' || m.kind === 'task';
+          const rowClass = isSystem ? 'system' : m.direction;
+          const bubbleClass = isSystem ? 'msg-system' : (m.direction === 'inbound' ? 'msg-inbound' : 'msg-outbound');
+
+          // Parse content JSON
           let content = m.content || '';
+          let sender = '';
           try {
             const parsed = JSON.parse(content);
-            if (parsed.text) content = parsed.text;
-            else if (parsed.type) content = '[' + parsed.type + '] ' + (parsed.text || JSON.stringify(parsed).slice(0, 200));
-            else content = JSON.stringify(parsed).slice(0, 300);
-          } catch { content = content.slice(0, 300); }
+            sender = parsed.sender || parsed.senderId || parsed.user || '';
+            if (parsed.text) {
+              content = parsed.text;
+            } else if (parsed.type) {
+              content = '[' + parsed.type + '] ' + (parsed.text || JSON.stringify(parsed).slice(0, 300));
+            } else {
+              content = JSON.stringify(parsed).slice(0, 400);
+            }
+          } catch {
+            content = content.slice(0, 400);
+          }
 
-          html += '<tr>' +
-            '<td style="white-space:nowrap;font-size:12px;color:var(--text-secondary)">' + esc(m.timestamp || '') + '</td>' +
-            '<td>' + dirBadge + '</td>' +
-            '<td style="font-size:12px">' + esc(m.kind || '') + '</td>' +
-            '<td style="font-size:12px;max-width:500px;overflow:hidden;text-overflow:ellipsis">' + esc(content) + '</td>' +
-            '</tr>';
+          // Format timestamp to short HH:MM:SS
+          let timeStr = '';
+          if (m.timestamp) {
+            try {
+              timeStr = new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            } catch {
+              timeStr = m.timestamp;
+            }
+          }
+
+          const kindLabel = m.kind && m.kind !== 'message' ? '<div class="msg-kind">' + esc(m.kind) + '</div>' : '';
+          const senderLabel = sender ? '<div class="msg-sender">' + esc(sender) + '</div>' : '';
+          const timeLabel = timeStr ? '<div class="msg-time">' + esc(timeStr) + '</div>' : '';
+
+          html += '<div class="msg-row ' + rowClass + '">' +
+            '<div class="msg-bubble ' + bubbleClass + '">' +
+            senderLabel +
+            kindLabel +
+            '<div class="msg-content">' + esc(content) + '</div>' +
+            timeLabel +
+            '</div>' +
+            '</div>';
         }
-        html += '</table>';
+        html += '</div>';
         document.getElementById('content').innerHTML = html;
       } catch (e) {
         document.getElementById('content').innerHTML = '<div class="loading">Error: ' + esc(e.message) + '</div>';
