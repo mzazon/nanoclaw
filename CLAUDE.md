@@ -136,14 +136,19 @@ If approvals are configured server-side but the host callback isn't running (or 
 
 ### Adding external MCP tool integrations
 
-Third-party MCP servers (Google Calendar, Gmail, etc.) follow a 4-layer pattern: OneCLI app connection, stub credentials on host, mount allowlist entry (`allowReadWrite: true`), Dockerfile package install, per-group container.json wiring. No tool allowlist changes needed — containers run with `bypassPermissions` and MCP tools from configured servers are auto-available. Full pattern with gotchas documented in `~/vault/Projects/NanoClaw/NanoClaw Customization Patterns.md` (Pattern 8).
+MCP tool integrations use the proxy-native pattern (LOCAL-002): custom TypeScript MCP servers in `container/agent-runner/src/` that make raw HTTP calls with no Authorization header. The OneCLI HTTPS proxy (`HTTPS_PROXY` in every container) matches the target host and injects the real OAuth Bearer token from its vault. No stub credentials, no Dockerfile package installs, no mount entries.
 
-Key files for MCP tool integrations:
-- `container/Dockerfile` — pinned `ARG` + `pnpm install -g` layer for the MCP server package
-- `groups/<folder>/container.json` — `mcpServers` entry + `additionalMounts` entry per group
-- `~/.config/nanoclaw/mount-allowlist.json` — host-level mount security (`allowReadWrite: true` required for token-refreshing MCP servers)
+To add a new proxy-native MCP integration:
+1. Write `<service>-mcp-stdio.ts` in `container/agent-runner/src/` using `@modelcontextprotocol/sdk` stdio transport + `zod` schemas (both already in the dependency tree)
+2. Make raw HTTP calls to the service API with no auth headers
+3. Gate server startup behind `if (import.meta.main)` so tests can import helpers
+4. Write `<service>-mcp-stdio.test.ts` with bun:test
+5. Add `mcpServers` entry in target group's `container.json`: `"command": "bun", "args": ["run", "/app/src/<service>-mcp-stdio.ts"]`
+6. Ensure OneCLI has the app connected and the agent has access to its secrets
 
-Current integrations: Google Calendar (`@cocal/google-calendar-mcp`), Gmail (`@gongrzhe/server-gmail-autoauth-mcp`). Both use OneCLI stub-credential pattern.
+No Dockerfile changes. No stub files. No mounts. No npm packages. Containers run with `bypassPermissions` so MCP tools from configured servers are auto-available.
+
+Current integrations: Gmail (`gmail-mcp-stdio.ts`, read-only), Google Calendar (`calendar-mcp-stdio.ts`, read+write). Both wired in `groups/dm-with-michael/container.json`.
 
 ## Skills
 
@@ -248,6 +253,7 @@ Changes diverging from upstream trunk. Each has a reference ID (`LOCAL-NNN`) mar
 | ID | Files | What & Why |
 |----|-------|------------|
 | LOCAL-001 | `src/modules/forum-thread.ts`, `container/agent-runner/src/mcp-tools/forum-thread.ts`, `container/agent-runner/src/mcp-tools/core.ts` | **Forum thread targeting fix.** `create_forum_thread` now returns the new thread's platform-qualified ID via the existing `writeSystemResponse` request-response pattern. `send_message` gains an optional `thread_id` param to override session default. Without this, multi-research sessions post results to the first thread instead of the newly created one — `resolveRouting()` inherits `session_routing.thread_id` when destination matches session channel. |
+| LOCAL-002 | `container/agent-runner/src/gmail-mcp-stdio.ts`, `container/agent-runner/src/calendar-mcp-stdio.ts`, `container/Dockerfile`, `groups/dm-with-michael/container.json` | **Proxy-native MCP integrations.** Replaced archived npm MCP packages (`@gongrzhe/server-gmail-autoauth-mcp`, `@cocal/google-calendar-mcp`) with custom TypeScript MCP servers that make raw HTTP calls with no auth header. OneCLI HTTPS proxy injects OAuth tokens in flight. Eliminates stub credential files, mount entries, and Dockerfile package layers. Cherry-picked from ddaniels/nanoclaw `skill/google-workspace` branch. |
 
 ## CJK font support
 
