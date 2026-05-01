@@ -263,28 +263,32 @@ async function processQuery(
   const pollHandle = setInterval(() => {
     if (done) return;
 
-    // Skip system messages (MCP tool responses) and /clear (needs fresh query).
-    // Thread routing is the router's concern — if a message landed in this
-    // session, the agent should see it. Per-thread sessions already isolate
-    // threads into separate containers; shared sessions intentionally merge
-    // everything. Filtering on thread_id here caused deadlocks when the
-    // initial batch and follow-ups had mismatched thread_ids (e.g. a
-    // host-generated welcome trigger with null thread vs a Discord DM reply).
-    const newMessages = getPendingMessages().filter((m) => {
-      if (m.kind === 'system') return false;
-      if (m.kind === 'task') return false; // tasks need applyPreTaskScripts — defer to main loop
-      if ((m.kind === 'chat' || m.kind === 'chat-sdk') && isClearCommand(m)) return false;
-      return true;
-    });
-    if (newMessages.length > 0) {
-      const newIds = newMessages.map((m) => m.id);
-      markProcessing(newIds);
+    try {
+      // Skip system messages (MCP tool responses) and /clear (needs fresh query).
+      // Thread routing is the router's concern — if a message landed in this
+      // session, the agent should see it. Per-thread sessions already isolate
+      // threads into separate containers; shared sessions intentionally merge
+      // everything. Filtering on thread_id here caused deadlocks when the
+      // initial batch and follow-ups had mismatched thread_ids (e.g. a
+      // host-generated welcome trigger with null thread vs a Discord DM reply).
+      const newMessages = getPendingMessages().filter((m) => {
+        if (m.kind === 'system') return false;
+        if (m.kind === 'task') return false; // tasks need applyPreTaskScripts — defer to main loop
+        if ((m.kind === 'chat' || m.kind === 'chat-sdk') && isClearCommand(m)) return false;
+        return true;
+      });
+      if (newMessages.length > 0) {
+        const newIds = newMessages.map((m) => m.id);
+        markProcessing(newIds);
 
-      const prompt = formatMessages(newMessages);
-      log(`Pushing ${newMessages.length} follow-up message(s) into active query`);
-      query.push(prompt);
+        const prompt = formatMessages(newMessages);
+        log(`Pushing ${newMessages.length} follow-up message(s) into active query`);
+        query.push(prompt);
 
-      markCompleted(newIds);
+        markCompleted(newIds);
+      }
+    } catch (err) {
+      log(`Active-poll tick error: ${err instanceof Error ? err.message : String(err)}`);
     }
   }, ACTIVE_POLL_INTERVAL_MS);
 
