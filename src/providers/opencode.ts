@@ -11,6 +11,7 @@
 import fs from 'fs';
 import path from 'path';
 
+import { readEnvFile } from '../env.js';
 import { registerProviderContainerConfig } from './provider-container-registry.js';
 
 function mergeNoProxy(current: string | undefined, additions: string): string {
@@ -37,14 +38,16 @@ registerProviderContainerConfig('opencode', (ctx) => {
     NO_PROXY: mergeNoProxy(ctx.hostEnv.NO_PROXY, '127.0.0.1,localhost'),
     no_proxy: mergeNoProxy(ctx.hostEnv.no_proxy, '127.0.0.1,localhost'),
   };
-  for (const key of [
+  const providerKeys = [
     'OPENCODE_PROVIDER',
     'OPENCODE_MODEL',
     'OPENCODE_SMALL_MODEL',
     'GOOGLE_CLOUD_PROJECT',
     'VERTEX_LOCATION',
-  ] as const) {
-    const value = ctx.hostEnv[key];
+  ] as const;
+  const envFileVars = readEnvFile([...providerKeys]);
+  for (const key of providerKeys) {
+    const value = ctx.hostEnv[key] || envFileVars[key];
     if (value) env[key] = value;
   }
 
