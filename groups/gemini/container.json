@@ -1,0 +1,27 @@
+{
+  "mcpServers": {},
+  "packages": {
+    "apt": ["gh"],
+    "npm": []
+  },
+  "additionalMounts": [
+    {
+      "hostPath": "/home/mzazon/vault/Sources/Research",
+      "containerPath": "vault/Sources/Research",
+      "readonly": false
+    },
+    {
+      "hostPath": "/home/mzazon/vault",
+      "containerPath": "vault",
+      "readonly": true
+    },
+    {
+      "hostPath": "/home/mzazon/.config/gh",
+      "containerPath": "gh-config",
+      "readonly": true
+    }
+  ],
+  "skills": "all",
+  "groupName": "Gemini",
+  "assistantName": "Gemini"
+}
