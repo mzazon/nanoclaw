@@ -1,7 +1,9 @@
 {
   "mcpServers": {},
   "packages": {
-    "apt": ["gh"],
+    "apt": [
+      "gh"
+    ],
     "npm": []
   },
   "additionalMounts": [
@@ -21,7 +23,9 @@
       "readonly": true
     }
   ],
+  "provider": "opencode",
   "skills": "all",
   "groupName": "Gemini",
-  "assistantName": "Gemini"
+  "assistantName": "Gemini",
+  "agentGroupId": "ag-1777691303593-gemini"
 }
