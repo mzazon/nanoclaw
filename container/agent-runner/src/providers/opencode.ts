@@ -101,21 +101,24 @@ function buildOpenCodeConfig(options: ProviderOptions): Record<string, unknown> 
     .filter(Boolean)
     .filter((mid, i, a) => a.indexOf(mid as string) === i);
 
+  const isVertex = provider === 'google-vertex';
+  const providerBlock: Record<string, unknown> = isVertex
+    ? {
+        options: {
+          project: process.env.GOOGLE_CLOUD_PROJECT,
+          location: process.env.VERTEX_LOCATION || 'global',
+        },
+      }
+    : {
+        options: { apiKey: 'placeholder', baseURL: proxyUrl },
+      };
+  if (modelsToRegister.length > 0) {
+    providerBlock.models = Object.fromEntries(
+      modelsToRegister.map((mid) => [mid, { id: mid, name: mid, tool_call: true }]),
+    );
+  }
   const providerOptions: Record<string, unknown> =
-    provider === 'anthropic'
-      ? {}
-      : {
-          [provider]: {
-            options: { apiKey: 'placeholder', baseURL: proxyUrl },
-            ...(modelsToRegister.length > 0
-              ? {
-                  models: Object.fromEntries(
-                    modelsToRegister.map((mid) => [mid, { id: mid, name: mid, tool_call: true }]),
-                  ),
-                }
-              : {}),
-          },
-        };
+    provider === 'anthropic' ? {} : { [provider]: providerBlock };
 
   const mcp = mcpServersToOpenCodeConfig(options.mcpServers);
 
