@@ -35,8 +35,8 @@ registerProviderContainerConfig('opencode', (ctx) => {
 
   const env: Record<string, string> = {
     XDG_DATA_HOME: '/opencode-xdg',
-    NO_PROXY: mergeNoProxy(ctx.hostEnv.NO_PROXY, '127.0.0.1,localhost'),
-    no_proxy: mergeNoProxy(ctx.hostEnv.no_proxy, '127.0.0.1,localhost'),
+    NO_PROXY: mergeNoProxy(ctx.hostEnv.NO_PROXY, '127.0.0.1,localhost,aiplatform.googleapis.com,oauth2.googleapis.com'),
+    no_proxy: mergeNoProxy(ctx.hostEnv.no_proxy, '127.0.0.1,localhost,aiplatform.googleapis.com,oauth2.googleapis.com'),
   };
   const providerKeys = [
     'OPENCODE_PROVIDER',
