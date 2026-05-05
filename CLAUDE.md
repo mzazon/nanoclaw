@@ -100,13 +100,25 @@ A second tier (direct source-level self-edits via a draft/activate flow) is plan
 
 API keys, OAuth tokens, and auth credentials are managed by the OneCLI gateway. Secrets are injected into per-agent containers at request time — none are passed in env vars or through chat context. `src/onecli-approvals.ts`, `ensureAgent()` in `container-runner.ts`. Run `onecli --help`.
 
+### Accessing the OneCLI web UI
+
+OneCLI binds to `172.17.0.1:10254` (Docker bridge only) so containers can reach it via `host.docker.internal`. It is **not** accessible on `127.0.0.1` from the host, and not reachable from remote machines without a tunnel.
+
+**From a remote machine (e.g. MacBook):**
+```bash
+ssh -N -L 10254:172.17.0.1:10254 <host>
+# then open http://localhost:10254 in your browser
+```
+
+**OAuth callback gotcha:** `APP_URL` in `~/.onecli/docker-compose.yml` is set to `http://localhost:10254` (not the Docker bridge IP). This is intentional — Google OAuth rejects private IPs (`172.17.0.1`) as redirect URIs but accepts localhost. The SSH tunnel above makes `localhost:10254` reach OneCLI, so the OAuth callback flow works end-to-end. Do not revert `APP_URL` to `172.17.0.1`.
+
 ### Gotcha: auto-created agents start in `selective` secret mode
 
 When the host first spawns a session for a new agent group, `container-runner.ts:385` calls `onecli.ensureAgent({ name, identifier })`. The OneCLI `POST /api/agents` endpoint creates the agent in **`selective`** secret mode — meaning **no secrets are assigned to it by default**, even if the secrets exist in the vault and have host patterns that would otherwise match.
 
 Symptom: container starts, the proxy + CA cert are wired correctly, but the agent gets `401 Unauthorized` (or similar) from APIs whose credentials *are* in the vault. The credential just isn't in this agent's allow-list.
 
-The SDK does not expose `setSecretMode` — the only fix is the CLI (or the web UI at `http://127.0.0.1:10254`).
+The SDK does not expose `setSecretMode` — the only fix is the CLI (or the web UI at `http://localhost:10254` via SSH tunnel — see above).
 
 ```bash
 # Find the agent (identifier is the agent group id)
@@ -130,7 +142,7 @@ If you've just enabled `mode all`, no container restart is needed — the gatewa
 
 Approval-gating credentialed actions is a **two-sided** flow:
 
-- **Server-side** (OneCLI gateway): decides *when* to hold a request and emit a pending approval. As of `onecli@1.3.0`, the CLI does **not** expose this — `rules create --action` only accepts `block` or `rate_limit`, and `secrets create` has no approval flag. Approval policies must be configured via the OneCLI web UI at `http://127.0.0.1:10254`. If/when the CLI grows an `approve` action, this section needs updating.
+- **Server-side** (OneCLI gateway): decides *when* to hold a request and emit a pending approval. As of `onecli@1.3.0`, the CLI does **not** expose this — `rules create --action` only accepts `block` or `rate_limit`, and `secrets create` has no approval flag. Approval policies must be configured via the OneCLI web UI at `http://localhost:10254` (SSH tunnel required — see above). If/when the CLI grows an `approve` action, this section needs updating.
 - **Host-side** (nanoclaw): receives pending approvals and routes them to a human. `src/modules/approvals/onecli-approvals.ts` registers a callback via `onecli.configureManualApproval(cb)` (long-polls `GET /api/approvals/pending`). The callback uses `pickApprover` + `pickApprovalDelivery` from `src/modules/approvals/primitive.ts` to DM an approver. Approvers are resolved from the `user_roles` table — preference order: scoped admins for the agent group → global admins → owners. There is no env var like `NANOCLAW_ADMIN_USER_IDS`; roles are persisted in the central DB only.
 
 If approvals are configured server-side but the host callback isn't running (or throws), every credentialed call hangs until the gateway times out. Conversely, if the gateway has no rule asking for approval, the host callback never fires regardless of how it's wired.
@@ -269,6 +281,7 @@ The agent container runs on **Bun**; the host runs on **Node** (pnpm). They comm
 - **Adding a Node CLI the agent invokes at runtime** (like `agent-browser`, `claude-code`, `vercel`) → put it in the Dockerfile's pnpm global-install block, pinned to an exact version via a new `ARG`. Don't use `bun install -g` — that bypasses the pnpm supply-chain policy.
 - **Changing the Dockerfile entrypoint or the dynamic-spawn command** (`src/container-runner.ts` line ~301) → keep `exec bun ...` so signals forward cleanly. The image has no `/app/dist`; don't reintroduce a tsc build step.
 - **Changing session-DB pragmas** (`container/agent-runner/src/db/connection.ts`) → `journal_mode=DELETE` is load-bearing for cross-mount visibility. Read the comment block at the top of the file first.
+- **Container exits immediately with code 125** → the per-agent Docker image (`imageTag` in `container.json`) is missing. Diagnose: `docker images | grep nanoclaw`. Fix: rebuild the per-agent image from `:latest` with the group's custom apt/npm packages, or remove `imageTag` to fall back to `:latest` (loses custom packages). Images can go missing after `docker system prune` or base image rebuilds. No auto-rebuild safeguard exists yet.
 
 ## Local Customizations
 
