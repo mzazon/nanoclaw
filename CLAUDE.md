@@ -100,18 +100,6 @@ A second tier (direct source-level self-edits via a draft/activate flow) is plan
 
 API keys, OAuth tokens, and auth credentials are managed by the OneCLI gateway. Secrets are injected into per-agent containers at request time — none are passed in env vars or through chat context. `src/onecli-approvals.ts`, `ensureAgent()` in `container-runner.ts`. Run `onecli --help`.
 
-### Accessing the OneCLI web UI
-
-OneCLI binds to `172.17.0.1:10254` (Docker bridge only) so containers can reach it via `host.docker.internal`. It is **not** accessible on `127.0.0.1` from the host, and not reachable from remote machines without a tunnel.
-
-**From a remote machine (e.g. MacBook):**
-```bash
-ssh -N -L 10254:172.17.0.1:10254 <host>
-# then open http://localhost:10254 in your browser
-```
-
-**OAuth callback gotcha:** `APP_URL` in `~/.onecli/docker-compose.yml` is set to `http://localhost:10254` (not the Docker bridge IP). This is intentional — Google OAuth rejects private IPs (`172.17.0.1`) as redirect URIs but accepts localhost. The SSH tunnel above makes `localhost:10254` reach OneCLI, so the OAuth callback flow works end-to-end. Do not revert `APP_URL` to `172.17.0.1`.
-
 ### Gotcha: auto-created agents start in `selective` secret mode
 
 When the host first spawns a session for a new agent group, `container-runner.ts:385` calls `onecli.ensureAgent({ name, identifier })`. The OneCLI `POST /api/agents` endpoint creates the agent in **`selective`** secret mode — meaning **no secrets are assigned to it by default**, even if the secrets exist in the vault and have host patterns that would otherwise match.
@@ -149,7 +137,7 @@ If approvals are configured server-side but the host callback isn't running (or 
 
 ### Adding external MCP tool integrations
 
-MCP tool integrations use the proxy-native pattern (LOCAL-002): custom TypeScript MCP servers in `container/agent-runner/src/` that make raw HTTP calls with no Authorization header. The OneCLI HTTPS proxy (`HTTPS_PROXY` in every container) matches the target host and injects the real OAuth Bearer token from its vault. No stub credentials, no Dockerfile package installs, no mount entries.
+MCP tool integrations use the proxy-native pattern: custom TypeScript MCP servers in `container/agent-runner/src/` that make raw HTTP calls with no Authorization header. The OneCLI HTTPS proxy (`HTTPS_PROXY` in every container) matches the target host and injects the real OAuth Bearer token from its vault. No stub credentials, no Dockerfile package installs, no mount entries.
 
 To add a new proxy-native MCP integration:
 1. Write `<service>-mcp-stdio.ts` in `container/agent-runner/src/` using `@modelcontextprotocol/sdk` stdio transport + `zod` schemas (both already in the dependency tree)
@@ -160,8 +148,6 @@ To add a new proxy-native MCP integration:
 6. Ensure OneCLI has the app connected and the agent has access to its secrets
 
 No Dockerfile changes. No stub files. No mounts. No npm packages. Containers run with `bypassPermissions` so MCP tools from configured servers are auto-available.
-
-Current integrations: Gmail (`gmail-mcp-stdio.ts`, read-only), Google Calendar (`calendar-mcp-stdio.ts`, read+write). Both wired in `groups/dm-with-michael/container.json`.
 
 ## Skills
 
@@ -285,12 +271,7 @@ The agent container runs on **Bun**; the host runs on **Node** (pnpm). They comm
 
 ## Local Customizations
 
-Changes diverging from upstream trunk. Each has a reference ID (`LOCAL-NNN`) marked in code comments for `grep -r 'LOCAL-' src/ container/`. Re-apply after upstream merges.
-
-| ID | Files | What & Why |
-|----|-------|------------|
-| LOCAL-001 | `src/modules/forum-thread.ts`, `container/agent-runner/src/mcp-tools/forum-thread.ts`, `container/agent-runner/src/mcp-tools/core.ts` | **Forum thread targeting fix.** `create_forum_thread` now returns the new thread's platform-qualified ID via the existing `writeSystemResponse` request-response pattern. `send_message` gains an optional `thread_id` param to override session default. Without this, multi-research sessions post results to the first thread instead of the newly created one — `resolveRouting()` inherits `session_routing.thread_id` when destination matches session channel. |
-| LOCAL-002 | `container/agent-runner/src/gmail-mcp-stdio.ts`, `container/agent-runner/src/calendar-mcp-stdio.ts`, `container/Dockerfile`, `groups/dm-with-michael/container.json` | **Proxy-native MCP integrations.** Replaced archived npm MCP packages (`@gongrzhe/server-gmail-autoauth-mcp`, `@cocal/google-calendar-mcp`) with custom TypeScript MCP servers that make raw HTTP calls with no auth header. OneCLI HTTPS proxy injects OAuth tokens in flight. Eliminates stub credential files, mount entries, and Dockerfile package layers. Cherry-picked from ddaniels/nanoclaw `skill/google-workspace` branch. |
+Install-specific divergences from upstream trunk are documented in `.claude/CLAUDE.local.md` (gitignored). Each is marked with a `LOCAL-NNN` ID in code — `grep -r 'LOCAL-' src/ container/` to find them. Re-apply after upstream merges.
 
 ## CJK font support
 
