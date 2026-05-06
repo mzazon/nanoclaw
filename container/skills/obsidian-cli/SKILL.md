@@ -7,6 +7,16 @@ description: Interact with Obsidian vaults using the Obsidian CLI to read, creat
 
 Use the `obsidian` CLI to interact with a running Obsidian instance. Requires Obsidian to be open.
 
+## SSH / Linux Path Note
+
+On Linux with the Obsidian desktop app installed, `/usr/bin/obsidian` is the Electron desktop binary — it segfaults without a display. The CLI wrapper is at `~/.local/bin/obsidian` (sets `DISPLAY=:99`, calls `obsidian-cli`). When invoking via non-interactive SSH, always use the full path:
+
+```bash
+ssh intel-pc "/home/mzazon/.local/bin/obsidian <command>"
+```
+
+**REST API search:** The Obsidian REST API (`/search/`, `/search/simple/`) returns 404 — search endpoints are not implemented. For content search, use `obsidian search query=...` via CLI or vault-search. Read (`GET /vault/<path>`) and vault listing (`GET /vault/`) work fine.
+
 ## Command reference
 
 Run `obsidian help` to see all available commands. This is always up to date. Full docs: https://help.obsidian.md/cli

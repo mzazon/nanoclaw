@@ -245,6 +245,14 @@ curl -s -X POST http://localhost:11236/api/embed \
   -d '{"async": true}'
 ```
 
+### Non-Interactive SSH PATH
+
+`vs` is at `~/.local/bin/vs` — NOT in non-interactive SSH PATH. Always use the full path:
+
+```bash
+ssh intel-pc "/home/mzazon/.local/bin/vs search 'query' --json"
+```
+
 ### HTTP API Body Schema
 
 For direct API use (e.g. from inside a container where the CLI isn't available):
