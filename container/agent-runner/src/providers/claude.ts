@@ -4,6 +4,7 @@ import path from 'path';
 import { query as sdkQuery, type HookCallback, type PreCompactHookInput } from '@anthropic-ai/claude-agent-sdk';
 
 import { clearContainerToolInFlight, setContainerToolInFlight } from '../db/connection.js';
+import { postToolUseVisibility, preToolUseVisibility } from '../hooks/tool-visibility.js'; // LOCAL-007
 import { registerProvider } from './provider-registry.js';
 import type { AgentProvider, AgentQuery, McpServerConfig, ProviderEvent, ProviderOptions, QueryInput } from './types.js';
 
@@ -298,9 +299,9 @@ export class ClaudeProvider implements AgentProvider {
         settingSources: ['project', 'user'],
         mcpServers: this.mcpServers,
         hooks: {
-          PreToolUse: [{ hooks: [preToolUseHook] }],
-          PostToolUse: [{ hooks: [postToolUseHook] }],
-          PostToolUseFailure: [{ hooks: [postToolUseHook] }],
+          PreToolUse: [{ hooks: [preToolUseHook, preToolUseVisibility] }], // LOCAL-007
+          PostToolUse: [{ hooks: [postToolUseHook, postToolUseVisibility] }], // LOCAL-007
+          PostToolUseFailure: [{ hooks: [postToolUseHook, postToolUseVisibility] }], // LOCAL-007
           PreCompact: [{ hooks: [createPreCompactHook(this.assistantName)] }],
         },
       },
