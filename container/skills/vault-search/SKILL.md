@@ -271,7 +271,7 @@ For direct API use (e.g. from inside a container where the CLI isn't available):
 ```
 - `scope`: array of folder prefixes (not repeated `--scope` flag strings)
 - `filters`: object of frontmatter key-value pairs (not repeated `--filter` flags)
-- `strict`: boolean, hard-excludes non-matching docs
+- `strict`: boolean — **note:** HTTP API `strict` is less reliable than CLI `--strict` for hard frontmatter filtering. For queries where only matching docs should appear (e.g. status=open tasks), prefer the CLI via SSH.
 
 **POST /api/read**
 ```json
