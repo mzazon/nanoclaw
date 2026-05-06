@@ -245,6 +245,32 @@ curl -s -X POST http://localhost:11236/api/embed \
   -d '{"async": true}'
 ```
 
+### HTTP API Body Schema
+
+For direct API use (e.g. from inside a container where the CLI isn't available):
+
+**POST /api/search**
+```json
+{
+  "query": "your query",
+  "mode": "hybrid",
+  "limit": 10,
+  "scope": ["Tasks/", "Projects/"],
+  "filters": {"context": "personal", "status": "open"},
+  "strict": true,
+  "threshold": 0.3
+}
+```
+- `scope`: array of folder prefixes (not repeated `--scope` flag strings)
+- `filters`: object of frontmatter key-value pairs (not repeated `--filter` flags)
+- `strict`: boolean, hard-excludes non-matching docs
+
+**POST /api/read**
+```json
+{"paths": ["Tasks/2026-05-01 My Task.md", "Projects/Fusion/Fusion.md"]}
+```
+- `paths`: **array** (not `"path"` singular) — takes a list, returns content for each
+
 ## Configuration
 
 Config file: `~/.vault-search/config.json`
