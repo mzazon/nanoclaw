@@ -9,14 +9,14 @@ importers:
   .:
     dependencies:
       '@chat-adapter/discord':
-        specifier: 4.26.0
-        version: 4.26.0
+        specifier: 4.28.1
+        version: 4.28.1
       '@chat-adapter/slack':
-        specifier: 4.26.0
-        version: 4.26.0
+        specifier: 4.28.1
+        version: 4.28.1
       '@chat-adapter/telegram':
-        specifier: 4.26.0
-        version: 4.26.0
+        specifier: 4.28.1
+        version: 4.28.1
       '@clack/core':
         specifier: ^1.2.0
         version: 1.2.0
@@ -30,8 +30,8 @@ importers:
         specifier: 11.10.0
         version: 11.10.0
       chat:
-        specifier: ^4.24.0
-        version: 4.26.0
+        specifier: ^4.28.1
+        version: 4.28.1
       cron-parser:
         specifier: 5.5.0
         version: 5.5.0
@@ -78,17 +78,17 @@ importers:
 
 packages:
 
-  '@chat-adapter/discord@4.26.0':
-    resolution: {integrity: sha512-p0Xm/aPjHP9z87/tXtHz0KFmbUcu7SGPQAAlT8mrKRX49jO77Tognj/5poSmV1XQ1C4BLfxpPvTQlLNK/5omkw==}
+  '@chat-adapter/discord@4.28.1':
+    resolution: {integrity: sha512-j9/mym6upfS0aIpc9TQSxHKZDBlIUz6kq8v9jduq1YuErV+a3bVqxLXBzHRtCQMmVBj89Zy8mH7jXkBavlth5A==}
 
-  '@chat-adapter/shared@4.26.0':
-    resolution: {integrity: sha512-YD0MGktFXrArUqTBsyPfL5vkdD1WBS58PAWO0oVrMQAMmPxpAXfWGjBtZCkf3y8R8Svb0uVuVXiMZSForaEnMQ==}
+  '@chat-adapter/shared@4.28.1':
+    resolution: {integrity: sha512-v7AcZMrvS2gxFlRiUO1o9Nta2iipnnmV54Gie8e3nQTQvnghENfSf7j7nimA5DOUWCgj+e4DV7LE0x1pakNtkA==}
 
-  '@chat-adapter/slack@4.26.0':
-    resolution: {integrity: sha512-NNN47rURI6qpJf4rRK8xyeumjPTAXr7YSU4/FnViU8cFV/vKYFR4xZTzlFMVWNrYi9SmSwasUjcBmQznigK54Q==}
+  '@chat-adapter/slack@4.28.1':
+    resolution: {integrity: sha512-JxgV7+cRXXeKpj0MzS7nzG3JvpnfhIgnPo9r/sdEIzeWhIb8tUcT2PbLl/fpSu/cb+WkICS0bCENn1I0PS39Hg==}
 
-  '@chat-adapter/telegram@4.26.0':
-    resolution: {integrity: sha512-PE2HoCQ4648VNKZTuHFanQNoYzM/niNoSbDyYlPq6VOoB5qsoo1ctR8TERyl1EfPBNexWZpSWYrrnQPr15LUfA==}
+  '@chat-adapter/telegram@4.28.1':
+    resolution: {integrity: sha512-ZBw6zx36enxXGlbOoigzCsWH6slbTCOWyTGatCz7jq4DFTDpvjRgBBH760n9peFkZpXJWOAXZKJm/IW8saT5aw==}
 
   '@clack/core@1.2.0':
     resolution: {integrity: sha512-qfxof/3T3t9DPU/Rj3OmcFyZInceqj/NVtO9rwIuJqCUgh32gwPjpFQQp/ben07qKlhpwq7GzfWpST4qdJ5Drg==}
@@ -477,6 +477,10 @@ packages:
     resolution: {integrity: sha512-6cmdPrV/RYfd2U0mDGiMK8S7OJqpCTm7enMLRR3edccsPX8j7zXTLnaEF4fhxxJJTAIOil6+qZrnUPTuaLvwrQ==}
     engines: {node: '>= 18', npm: '>= 8.6.0'}
 
+  '@slack/socket-mode@2.0.7':
+    resolution: {integrity: sha512-qYy07je71WnEHgRwmw12DlAnZLi5HXmdlI2WUzUK2LH/rYXQpP6uEg462S5CwfE8FoCKUdIigHtYnOOfzZH1lQ==}
+    engines: {node: '>= 18', npm: '>= 8.6.0'}
+
   '@slack/types@2.21.0':
     resolution: {integrity: sha512-ZLMsKnD5KLRPmhFEoGoBQUD5Pc2bH3xFc5ygHlioEc0WmLGyZGoGCtMff4rpejrFnptrhfxcKpWxW4r3g39R0A==}
     engines: {node: '>= 12.13.0', npm: '>= 6.12.0'}
@@ -706,8 +710,8 @@ packages:
   character-entities@2.0.2:
     resolution: {integrity: sha512-shx7oQ0Awen/BRIdkjkvz54PnEEI/EjwXDSIZp86/KKdbafHh1Df/RYGBhn4hbe2+uKC9FnT5UCEdyPz3ai9hQ==}
 
-  chat@4.26.0:
-    resolution: {integrity: sha512-QToDnIEGpyb8yQA6YLMHOSRK30YVk4RtsyFyuWFYyB2c4jQlyIrSWtwVK7qyvmvqzQp9uDwCdJRAhS8GtCHAGQ==}
+  chat@4.28.1:
+    resolution: {integrity: sha512-oKBeLQ746rSmHWGoXmPgDOqMVdIe9cWFQBQ1G2pw0l2vV4sAsZgfEJmc1UYqSJR4kYy4PxKgRFy31pe4RJ644Q==}
 
   chownr@1.1.4:
     resolution: {integrity: sha512-jJ0bqzaylmJtVnNgzTeSOs8DPavpbYgEr/b0YL8/2GO3xJEhInFmhKMUnEJQjZumK7KXGFhUy89PrsJWlakBVg==}
@@ -1749,10 +1753,10 @@ packages:
 
 snapshots:
 
-  '@chat-adapter/discord@4.26.0':
+  '@chat-adapter/discord@4.28.1':
     dependencies:
-      '@chat-adapter/shared': 4.26.0
-      chat: 4.26.0
+      '@chat-adapter/shared': 4.28.1
+      chat: 4.28.1
       discord-api-types: 0.37.120
       discord-interactions: 4.4.0
       discord.js: 14.26.4
@@ -1761,25 +1765,28 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@chat-adapter/shared@4.26.0':
+  '@chat-adapter/shared@4.28.1':
     dependencies:
-      chat: 4.26.0
+      chat: 4.28.1
     transitivePeerDependencies:
       - supports-color
 
-  '@chat-adapter/slack@4.26.0':
+  '@chat-adapter/slack@4.28.1':
     dependencies:
-      '@chat-adapter/shared': 4.26.0
+      '@chat-adapter/shared': 4.28.1
+      '@slack/socket-mode': 2.0.7
       '@slack/web-api': 7.15.2
-      chat: 4.26.0
+      chat: 4.28.1
     transitivePeerDependencies:
+      - bufferutil
       - debug
       - supports-color
+      - utf-8-validate
 
-  '@chat-adapter/telegram@4.26.0':
+  '@chat-adapter/telegram@4.28.1':
     dependencies:
-      '@chat-adapter/shared': 4.26.0
-      chat: 4.26.0
+      '@chat-adapter/shared': 4.28.1
+      chat: 4.28.1
     transitivePeerDependencies:
       - supports-color
 
@@ -2074,6 +2081,19 @@ snapshots:
     dependencies:
       '@types/node': 22.19.17
 
+  '@slack/socket-mode@2.0.7':
+    dependencies:
+      '@slack/logger': 4.0.1
+      '@slack/web-api': 7.15.2
+      '@types/node': 22.19.17
+      '@types/ws': 8.18.1
+      eventemitter3: 5.0.4
+      ws: 8.20.0
+    transitivePeerDependencies:
+      - bufferutil
+      - debug
+      - utf-8-validate
+
   '@slack/types@2.21.0': {}
 
   '@slack/web-api@7.15.2':
@@ -2359,7 +2379,7 @@ snapshots:
 
   character-entities@2.0.2: {}
 
-  chat@4.26.0:
+  chat@4.28.1:
     dependencies:
       '@workflow/serde': 4.1.0-beta.2
       mdast-util-to-string: 4.0.0

@@ -40,7 +40,8 @@ groups/*
 
 agents-sdk-docs
 
-# Private docs — session handoffs and design specs belong in the vault, not the public repo
+# Private docs — session handoffs, design specs, and plans belong in the vault, not the public repo
 docs/sessions/
+docs/plans/
 docs/superpowers/
 .superpowers/

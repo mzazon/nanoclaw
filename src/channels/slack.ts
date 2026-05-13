@@ -1,5 +1,5 @@
 /**
- * Slack channel adapter (v2) — uses Chat SDK bridge.
+ * Slack channel adapter (v2) — uses Chat SDK bridge with Socket Mode.
  * Self-registers on import.
  */
 import { createSlackAdapter } from '@chat-adapter/slack';
@@ -10,12 +10,17 @@ import { registerChannelAdapter } from './channel-registry.js';
 
 registerChannelAdapter('slack', {
   factory: () => {
-    const env = readEnvFile(['SLACK_BOT_TOKEN', 'SLACK_SIGNING_SECRET']);
+    const env = readEnvFile(['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN']);
     if (!env.SLACK_BOT_TOKEN) return null;
     const slackAdapter = createSlackAdapter({
       botToken: env.SLACK_BOT_TOKEN,
-      signingSecret: env.SLACK_SIGNING_SECRET,
+      appToken: env.SLACK_APP_TOKEN,
+      mode: 'socket',
     });
-    return createChatSdkBridge({ adapter: slackAdapter, concurrency: 'concurrent', supportsThreads: true });
+    return createChatSdkBridge({
+      adapter: slackAdapter,
+      concurrency: 'concurrent',
+      supportsThreads: false,
+    });
   },
 });
