@@ -18,6 +18,7 @@ import {
   type ConcurrencyStrategy,
   type Message as ChatMessage,
 } from 'chat';
+import { hasMarkdownTable, markdownToCardWithTables } from './slack-table-converter.js';
 import { log } from '../log.js';
 import { SqliteStateAdapter } from '../state-sqlite.js';
 import { registerWebhookAdapter } from '../webhook-server.js';
@@ -74,6 +75,12 @@ export interface ChatSdkBridgeConfig {
    * and reactions still target the head of the reply.
    */
   maxTextLength?: number;
+  /**
+   * LOCAL-008: When true, outbound markdown containing GFM tables is
+   * converted to a Card element so the adapter renders native table
+   * blocks instead of falling back to raw text.
+   */
+  nativeTableCards?: boolean;
 }
 
 /**
@@ -399,7 +406,12 @@ export function createChatSdkBridge(config: ChatSdkBridgeConfig): ChannelAdapter
       if (content.operation === 'edit' && content.messageId) {
         const editText = transformText((content.text as string) || (content.markdown as string) || '');
         try {
-          await adapter.editMessage(tid, content.messageId as string, { markdown: editText });
+          if (config.nativeTableCards && hasMarkdownTable(editText)) {
+            const card = markdownToCardWithTables(editText);
+            await adapter.editMessage(tid, content.messageId as string, card);
+          } else {
+            await adapter.editMessage(tid, content.messageId as string, { markdown: editText });
+          }
         } catch (err) {
           if (isInvalidBlocksError(err)) {
             log.warn('editMessage got invalid_blocks, retrying as raw text', { tid });
@@ -506,6 +518,16 @@ export function createChatSdkBridge(config: ChatSdkBridgeConfig): ChannelAdapter
       const rawText = (content.markdown as string) || (content.text as string);
       const text = rawText ? transformText(rawText) : rawText;
       if (text) {
+        // LOCAL-008: route markdown with tables through Card path for native blocks
+        if (config.nativeTableCards && hasMarkdownTable(text)) {
+          try {
+            const card = markdownToCardWithTables(text);
+            const result = await adapter.postMessage(tid, card);
+            return result?.id;
+          } catch (err) {
+            log.warn('Native table card failed, falling back to markdown', { err });
+          }
+        }
         // Attach files if present (FileUpload format: { data, filename })
         const fileUploads = message.files?.map((f: { data: Buffer; filename: string }) => ({
           data: f.data,

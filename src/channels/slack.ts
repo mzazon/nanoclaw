@@ -21,6 +21,7 @@ registerChannelAdapter('slack', {
       adapter: slackAdapter,
       concurrency: 'concurrent',
       supportsThreads: true,
+      nativeTableCards: true, // LOCAL-008
     });
   },
 });
