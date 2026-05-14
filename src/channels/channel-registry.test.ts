@@ -152,6 +152,7 @@ describe('channel + router integration', () => {
       sender_scope: 'all',
       ignored_message_policy: 'drop',
       session_mode: 'shared',
+      threading_mode: 'flat',
       priority: 0,
       created_at: now(),
     });

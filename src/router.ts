@@ -160,12 +160,10 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
   // (e.g. free-text replies during multi-step approval flows).
   if (messageInterceptor && (await messageInterceptor(event))) return;
 
-  // 0. Apply the adapter's thread policy. Non-threaded adapters (Telegram,
-  //    WhatsApp, iMessage, email) collapse threads to the channel.
+  // 0. Adapter capability check (used later for per-MGA threading policy).
+  // Thread nulling moved to per-MGA level inside the fan-out loop — each
+  // agent wiring has its own threading_mode (LOCAL: selective threading).
   const adapter = getChannelAdapter(event.channelType);
-  if (adapter && !adapter.supportsThreads) {
-    event = { ...event, threadId: null };
-  }
 
   const isMention = event.message.isMention === true;
 
@@ -284,7 +282,11 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
     const scopeOk = engages && (!senderScopeGate || senderScopeGate(event, userId, mg, agent).allowed);
 
     if (engages && accessOk && scopeOk) {
-      await deliverToAgent(agent, agentGroup, mg, event, userId, adapter?.supportsThreads === true, true);
+      // Per-MGA threading policy: 'flat' nulls threadId, 'thread' preserves it.
+      // Falls back to adapter capability for wirings created before the migration.
+      const supportsThreads = agent.threading_mode === 'thread' || (!agent.threading_mode && adapter?.supportsThreads === true);
+      const agentEvent = supportsThreads ? event : { ...event, threadId: null };
+      await deliverToAgent(agent, agentGroup, mg, agentEvent, userId, supportsThreads, true);
       engagedCount++;
 
       // Mention-sticky: ask the adapter to subscribe the thread so the
@@ -315,7 +317,9 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
       // message (which also stages their attachments to disk via
       // writeSessionMessage → extractAttachmentFiles) is exactly what the
       // gate is meant to prevent.
-      await deliverToAgent(agent, agentGroup, mg, event, userId, adapter?.supportsThreads === true, false);
+      const accSupportsThreads = agent.threading_mode === 'thread' || (!agent.threading_mode && adapter?.supportsThreads === true);
+      const accEvent = accSupportsThreads ? event : { ...event, threadId: null };
+      await deliverToAgent(agent, agentGroup, mg, accEvent, userId, accSupportsThreads, false);
       accumulatedCount++;
     } else {
       log.debug('Message not engaged for agent (drop policy)', {
@@ -472,7 +476,7 @@ async function deliverToAgent(
   if (wake) {
     // Typing indicator + wake are only for the engaged branch; accumulated
     // messages sit silently until a real trigger fires.
-    startTypingRefresh(session.id, session.agent_group_id, event.channelType, event.platformId, event.threadId);
+    startTypingRefresh(session.id, session.agent_group_id, event.channelType, event.platformId, event.threadId, event.message.id);
     const freshSession = getSession(session.id);
     if (freshSession) {
       const woke = await wakeContainer(freshSession);

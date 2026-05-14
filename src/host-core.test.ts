@@ -386,6 +386,7 @@ describe('router', () => {
       sender_scope: 'all',
       ignored_message_policy: 'drop',
       session_mode: 'shared',
+      threading_mode: 'flat',
       priority: 0,
       created_at: now(),
     });
@@ -518,6 +519,7 @@ describe('router', () => {
       sender_scope: 'all',
       ignored_message_policy: 'drop',
       session_mode: 'shared',
+      threading_mode: 'flat',
       priority: 0,
       created_at: now(),
     });
@@ -624,6 +626,7 @@ describe('routing metadata preservation', () => {
       sender_scope: 'all',
       ignored_message_policy: 'drop',
       session_mode: 'shared',
+      threading_mode: 'thread',
       priority: 0,
       created_at: now(),
     });
@@ -639,7 +642,8 @@ describe('routing metadata preservation', () => {
       message: { id: 'msg-r1', kind: 'chat', content: JSON.stringify({ sender: 'A', text: 'hi' }), timestamp: now() },
     });
 
-    const session = findSession('mg-1', null);
+    // threading_mode='thread' + group chat → per-thread session keyed by threadId
+    const session = findSession('mg-1', 'thread-42') ?? findSession('mg-1', null);
     const db = new Database(inboundDbPath('ag-1', session!.id));
     const row = db
       .prepare('SELECT platform_id, channel_type, thread_id FROM messages_in WHERE id LIKE ?')
@@ -674,6 +678,7 @@ describe('routing metadata preservation', () => {
       sender_scope: 'all',
       ignored_message_policy: 'drop',
       session_mode: 'shared',
+      threading_mode: 'thread',
       priority: 0,
       created_at: now(),
     });

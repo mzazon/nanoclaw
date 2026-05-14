@@ -183,6 +183,7 @@ describe('messaging group agents', () => {
     sender_scope: 'all' as const,
     ignored_message_policy: 'drop' as const,
     session_mode: 'shared' as const,
+    threading_mode: 'flat' as const,
     priority: 0,
     created_at: now(),
   });

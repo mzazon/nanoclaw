@@ -473,6 +473,7 @@ async function handleChannelApprovalResponse(payload: ResponsePayload): Promise<
     sender_scope: 'known',
     ignored_message_policy: 'accumulate',
     session_mode: 'shared',
+    threading_mode: 'flat',
     priority: 0,
     created_at: new Date().toISOString(),
   });
@@ -573,6 +574,7 @@ setMessageInterceptor(async (event: InboundEvent): Promise<boolean> => {
     sender_scope: 'known',
     ignored_message_policy: 'accumulate',
     session_mode: 'shared',
+    threading_mode: 'flat',
     priority: 0,
     created_at: new Date().toISOString(),
   });

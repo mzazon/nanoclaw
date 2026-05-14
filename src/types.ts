@@ -115,6 +115,7 @@ export interface MessagingGroupAgent {
   sender_scope: SenderScope;
   ignored_message_policy: IgnoredMessagePolicy;
   session_mode: 'shared' | 'per-thread' | 'agent-shared';
+  threading_mode: 'flat' | 'thread';
   priority: number;
   created_at: string;
 }

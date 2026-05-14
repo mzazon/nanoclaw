@@ -20,7 +20,7 @@ registerChannelAdapter('slack', {
     return createChatSdkBridge({
       adapter: slackAdapter,
       concurrency: 'concurrent',
-      supportsThreads: false,
+      supportsThreads: true,
     });
   },
 });
