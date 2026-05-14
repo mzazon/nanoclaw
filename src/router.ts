@@ -284,7 +284,8 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
     if (engages && accessOk && scopeOk) {
       // Per-MGA threading policy: 'flat' nulls threadId, 'thread' preserves it.
       // Falls back to adapter capability for wirings created before the migration.
-      const supportsThreads = agent.threading_mode === 'thread' || (!agent.threading_mode && adapter?.supportsThreads === true);
+      const supportsThreads =
+        agent.threading_mode === 'thread' || (!agent.threading_mode && adapter?.supportsThreads === true);
       const agentEvent = supportsThreads ? event : { ...event, threadId: null };
       await deliverToAgent(agent, agentGroup, mg, agentEvent, userId, supportsThreads, true);
       engagedCount++;
@@ -317,7 +318,8 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
       // message (which also stages their attachments to disk via
       // writeSessionMessage → extractAttachmentFiles) is exactly what the
       // gate is meant to prevent.
-      const accSupportsThreads = agent.threading_mode === 'thread' || (!agent.threading_mode && adapter?.supportsThreads === true);
+      const accSupportsThreads =
+        agent.threading_mode === 'thread' || (!agent.threading_mode && adapter?.supportsThreads === true);
       const accEvent = accSupportsThreads ? event : { ...event, threadId: null };
       await deliverToAgent(agent, agentGroup, mg, accEvent, userId, accSupportsThreads, false);
       accumulatedCount++;
@@ -476,7 +478,14 @@ async function deliverToAgent(
   if (wake) {
     // Typing indicator + wake are only for the engaged branch; accumulated
     // messages sit silently until a real trigger fires.
-    startTypingRefresh(session.id, session.agent_group_id, event.channelType, event.platformId, event.threadId, event.message.id);
+    startTypingRefresh(
+      session.id,
+      session.agent_group_id,
+      event.channelType,
+      event.platformId,
+      event.threadId,
+      event.message.id,
+    );
     const freshSession = getSession(session.id);
     if (freshSession) {
       const woke = await wakeContainer(freshSession);

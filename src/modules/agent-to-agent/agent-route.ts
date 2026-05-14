@@ -33,7 +33,6 @@ import { hasDestination } from './db/agent-destinations.js';
 
 export { isSafeAttachmentName };
 
-
 export interface ForwardedAttachment {
   name: string;
   filename: string;

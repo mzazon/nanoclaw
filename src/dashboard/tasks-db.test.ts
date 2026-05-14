@@ -55,7 +55,9 @@ describe('updateTaskChannel', () => {
     const changed = updateTaskChannel(db, 'task-1', 'discord', 'C123', 'T456');
     expect(changed).toBe(1);
 
-    const row = db.prepare('SELECT channel_type, platform_id, thread_id FROM messages_in WHERE id = ?').get('task-1') as {
+    const row = db
+      .prepare('SELECT channel_type, platform_id, thread_id FROM messages_in WHERE id = ?')
+      .get('task-1') as {
       channel_type: string;
       platform_id: string;
       thread_id: string;

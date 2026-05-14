@@ -105,7 +105,14 @@ describe('redactEnvKeys', () => {
   });
 
   it('includes all six expected plaintext keys in ENV_PLAINTEXT_KEYS', () => {
-    const expected = ['ASSISTANT_NAME', 'DASHBOARD_PORT', 'DATA_DIR', 'CONTAINER_INSTALL_LABEL', 'INSTALL_CJK_FONTS', 'TZ'];
+    const expected = [
+      'ASSISTANT_NAME',
+      'DASHBOARD_PORT',
+      'DATA_DIR',
+      'CONTAINER_INSTALL_LABEL',
+      'INSTALL_CJK_FONTS',
+      'TZ',
+    ];
     for (const k of expected) {
       expect(ENV_PLAINTEXT_KEYS).toContain(k);
     }

@@ -219,9 +219,9 @@ describe('createChatSdkBridge.deliver — display cards (send_card)', () => {
       adapter: stubAdapter({ postMessage }),
       supportsThreads: false,
     });
-    await expect(
-      bridge.deliver('slack:chan', null, { kind: 'chat-sdk', content: { text: 'hello' } }),
-    ).rejects.toThrow('channel_not_found');
+    await expect(bridge.deliver('slack:chan', null, { kind: 'chat-sdk', content: { text: 'hello' } })).rejects.toThrow(
+      'channel_not_found',
+    );
   });
 
   it('falls through to the text branch for non-card chat-sdk payloads (no regression)', async () => {

@@ -30,7 +30,14 @@ import { scanScheduledTasks, findTaskSession, getTaskDetail, updateTaskChannel }
 import { cancelTask, pauseTask, resumeTask, updateTask } from '../modules/scheduling/db.js';
 import { getAllAgentGroups } from '../db/agent-groups.js';
 import { getAllMessagingGroups } from '../db/messaging-groups.js';
-import { DATA_DIR, GROUPS_DIR, MOUNT_ALLOWLIST_PATH, ASSISTANT_NAME, CONTAINER_INSTALL_LABEL, ONECLI_URL } from '../config.js';
+import {
+  DATA_DIR,
+  GROUPS_DIR,
+  MOUNT_ALLOWLIST_PATH,
+  ASSISTANT_NAME,
+  CONTAINER_INSTALL_LABEL,
+  ONECLI_URL,
+} from '../config.js';
 import { getActiveContainerEntries } from '../container-runner.js';
 import { getDashboardSecret, setDashboardSecret } from './server.js';
 import { updateEnvSecret, parseAllEnvKeys, redactEnvKeys } from './token-rotate-helpers.js';
@@ -237,9 +244,7 @@ export async function dispatch(
         '--timestamps',
         entry.containerName,
       ]);
-      const combined = (stdout + stderr)
-        .split('\n')
-        .filter((l) => l.length > 0);
+      const combined = (stdout + stderr).split('\n').filter((l) => l.length > 0);
       return json(res, { lines: combined });
     } catch (err) {
       return json(res, { error: String(err) }, 500);
@@ -406,11 +411,12 @@ export async function dispatch(
     const db = new Database(found.dbPath);
     try {
       // Check status before proceeding
-      const row = db
-        .prepare("SELECT status FROM messages_in WHERE id = ? AND kind = 'task' LIMIT 1")
-        .get(taskId) as { status: string } | undefined;
+      const row = db.prepare("SELECT status FROM messages_in WHERE id = ? AND kind = 'task' LIMIT 1").get(taskId) as
+        | { status: string }
+        | undefined;
       if (!row) return json(res, { error: 'Task not found' }, 404);
-      if (row.status === 'processing') return json(res, { error: 'Cannot edit a task that is currently processing' }, 409);
+      if (row.status === 'processing')
+        return json(res, { error: 'Cannot edit a task that is currently processing' }, 409);
 
       // Validate cron if provided
       if (body.recurrence) {
@@ -445,13 +451,7 @@ export async function dispatch(
 
       // Apply channel update if any of the channel fields are present
       if (body.channel_type !== undefined || body.platform_id !== undefined || body.thread_id !== undefined) {
-        updateTaskChannel(
-          db,
-          taskId,
-          body.channel_type ?? null,
-          body.platform_id ?? null,
-          body.thread_id ?? null,
-        );
+        updateTaskChannel(db, taskId, body.channel_type ?? null, body.platform_id ?? null, body.thread_id ?? null);
       }
 
       return json(res, { ok: true });

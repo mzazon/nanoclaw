@@ -152,11 +152,7 @@ export function findTaskSession(sessionsDir: string, taskId: string): { dbPath: 
  * Get full detail for a single task, including run history and metrics.
  * Scans all session DBs for the task by id, then computes metrics from the series.
  */
-export function getTaskDetail(
-  sessionsDir: string,
-  taskId: string,
-  groupMap: Map<string, string>,
-): TaskDetail | null {
+export function getTaskDetail(sessionsDir: string, taskId: string, groupMap: Map<string, string>): TaskDetail | null {
   if (!fs.existsSync(sessionsDir)) return null;
 
   for (const agDir of fs.readdirSync(sessionsDir).filter((d) => d.startsWith('ag-'))) {
