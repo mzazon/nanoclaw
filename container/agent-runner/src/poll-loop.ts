@@ -4,6 +4,7 @@ import { writeMessageOut } from './db/messages-out.js';
 import { getInboundDb, touchHeartbeat, clearStaleProcessingAcks } from './db/connection.js';
 import { clearContinuation, migrateLegacyContinuation, setContinuation } from './db/session-state.js';
 import { clearCurrentInReplyTo, setCurrentInReplyTo } from './current-batch.js';
+import { resetToolVisStream } from './hooks/tool-visibility.js';
 import {
   formatMessages,
   extractRouting,
@@ -167,6 +168,7 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
 
     log(`Processing ${keep.length} message(s), kinds: ${[...new Set(keep.map((m) => m.kind))].join(',')}`);
 
+    resetToolVisStream();
     const query = config.provider.query({
       prompt,
       continuation,

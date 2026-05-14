@@ -35,6 +35,17 @@ const MAX_DELIVERY_ATTEMPTS = 3;
 const deliveryAttempts = new Map<string, number>();
 
 /**
+ * Tool-visibility streaming: maps (sessionId, streamingId, channelType, platformId)
+ * to the platform message ID returned by the first deliver(). Subsequent messages
+ * in the same stream become edits instead of new messages.
+ */
+const streamPlatformIds = new Map<string, string>();
+
+function streamKey(sessionId: string, streamingId: string, channelType: string, platformId: string): string {
+  return `${sessionId}:${streamingId}:${channelType}:${platformId}`;
+}
+
+/**
  * Sessions whose outbound queue is currently being drained.
  *
  * The active poll (1s, running sessions) and the sweep poll (60s, all
@@ -346,6 +357,18 @@ async function deliverMessage(
     return;
   }
 
+  // Tool-visibility streaming: if content has _streamingId, route
+  // subsequent messages as edits of the first delivered message.
+  if (content._streamingId && typeof content._streamingId === 'string') {
+    const sk = streamKey(session.id, content._streamingId, msg.channel_type, msg.platform_id);
+    const existingPlatformId = streamPlatformIds.get(sk);
+    if (existingPlatformId) {
+      content.operation = 'edit';
+      content.messageId = existingPlatformId;
+      msg = { ...msg, content: JSON.stringify(content) };
+    }
+  }
+
   // Read file attachments from outbox if the content declares files.
   // File I/O lives in session-manager.ts (symmetric with inbound
   // extractAttachmentFiles) — delivery just hands buffers to the adapter.
@@ -362,6 +385,15 @@ async function deliverMessage(
     msg.content,
     files,
   );
+
+  // Store the platform message ID for streaming edits
+  if (content._streamingId && typeof content._streamingId === 'string' && platformMsgId) {
+    const sk = streamKey(session.id, content._streamingId, msg.channel_type, msg.platform_id);
+    if (!streamPlatformIds.has(sk)) {
+      streamPlatformIds.set(sk, platformMsgId);
+    }
+  }
+
   log.info('Message delivered', {
     id: msg.id,
     channelType: msg.channel_type,

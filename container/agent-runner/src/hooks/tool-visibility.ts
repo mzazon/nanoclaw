@@ -27,6 +27,7 @@ const MAX_INPUT_PREVIEW = 120;
 const LONG_CALL_THRESHOLD_MS = 3000;
 const PROGRESS_FIRST_DELAY_MS = 30000;
 const PROGRESS_INTERVAL_MS = 30000;
+const STREAM_THROTTLE_MS = 1200;
 
 const TOOL_EMOJI: Record<string, string> = {
   Bash: '🖥️',
@@ -241,8 +242,67 @@ function describeToolInput(toolName: string, toolInput: unknown): string {
   return '';
 }
 
-function emit(text: string): void {
-  if (isTaskSession()) return;
+// ── Streaming accumulator ───────────────────────────────────────────
+// Instead of emitting one message per tool call, accumulate lines into
+// a single message that updates in-place via editMessage on the host.
+
+let streamId: string | null = null;
+let streamLines: string[] = [];
+let lastStreamEmitTime = 0;
+let streamThrottleTimer: ReturnType<typeof setTimeout> | null = null;
+const MAX_STREAM_LINES = 50;
+
+function ensureStreamId(): string {
+  if (!streamId) {
+    streamId = `tvs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+  return streamId;
+}
+
+export function resetToolVisStream(): void {
+  flushStream();
+  streamId = null;
+  streamLines = [];
+  lastStreamEmitTime = 0;
+  for (const [, entry] of toolBatch) clearTimeout(entry.timer);
+  toolBatch.clear();
+}
+
+function appendLine(line: string): void {
+  if (streamLines.length >= MAX_STREAM_LINES) {
+    streamLines.shift();
+  }
+  streamLines.push(line);
+  scheduleStreamEmit();
+}
+
+function scheduleStreamEmit(): void {
+  if (streamThrottleTimer) return;
+  const elapsed = Date.now() - lastStreamEmitTime;
+  if (elapsed >= STREAM_THROTTLE_MS) {
+    emitStream();
+  } else {
+    streamThrottleTimer = setTimeout(() => {
+      streamThrottleTimer = null;
+      emitStream();
+    }, STREAM_THROTTLE_MS - elapsed);
+  }
+}
+
+function flushStream(): void {
+  if (streamThrottleTimer) {
+    clearTimeout(streamThrottleTimer);
+    streamThrottleTimer = null;
+  }
+  if (streamLines.length > 0 && streamId) {
+    emitStream();
+  }
+}
+
+function emitStream(): void {
+  if (isTaskSession() || streamLines.length === 0) return;
+  const sid = ensureStreamId();
+  lastStreamEmitTime = Date.now();
   try {
     const routing = getSessionRouting();
     if (!routing.channel_type || !routing.platform_id) return;
@@ -252,7 +312,7 @@ function emit(text: string): void {
       platform_id: routing.platform_id,
       channel_type: routing.channel_type,
       thread_id: routing.thread_id,
-      content: JSON.stringify({ text, _toolVis: true }),
+      content: JSON.stringify({ text: streamLines.join('\n'), _toolVis: true, _streamingId: sid }),
     });
   } catch (err) {
     log(`emit failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -274,7 +334,7 @@ function flushBatch(toolName: string): void {
   const entry = toolBatch.get(toolName);
   if (!entry) return;
   toolBatch.delete(toolName);
-  emit(formatToolLine(entry.emoji, entry.label, entry.lastDesc, entry.count));
+  appendLine(formatToolLine(entry.emoji, entry.label, entry.lastDesc, entry.count));
 }
 
 function sendBatched(toolName: string, emoji: string, label: string, desc: string): void {
@@ -317,7 +377,7 @@ export const preToolUseVisibility: HookCallback = async (input, toolUseId) => {
   if (BATCH_TOOLS.has(toolName)) {
     sendBatched(toolName, emoji, label, desc);
   } else {
-    emit(formatToolLine(emoji, label, desc));
+    appendLine(formatToolLine(emoji, label, desc));
   }
 
   if ((toolName === 'Agent' || toolName === 'Task') && id) {
@@ -327,7 +387,7 @@ export const preToolUseVisibility: HookCallback = async (input, toolUseId) => {
       const elapsedStr = elapsedSec >= 60
         ? `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s`
         : `${elapsedSec}s`;
-      emit(formatToolLine('⏳', label, `still working — ${elapsedStr} elapsed`));
+      appendLine(formatToolLine('⏳', label, `still working — ${elapsedStr} elapsed`));
     };
     progressTimers[id] = setInterval(tick, PROGRESS_INTERVAL_MS);
     setTimeout(tick, PROGRESS_FIRST_DELAY_MS);
@@ -369,14 +429,14 @@ export const postToolUseVisibility: HookCallback = async (input, toolUseId) => {
   if (i.hook_event_name === 'PostToolUseFailure') {
     const reason = (i.error ?? 'failed').replace(/\s+/g, ' ').trim().slice(0, 80);
     const merged = desc ? `${desc}  ✗ ${reason}` : `✗ ${reason}`;
-    emit(formatToolLine('❌', label, merged));
+    appendLine(formatToolLine('❌', label, merged));
     return { continue: true };
   }
 
   const inferred = detectFailureFromResponse(toolName, i.tool_response);
   if (inferred) {
     const merged = desc ? `${desc}  ✗ ${inferred}` : `✗ ${inferred}`;
-    emit(formatToolLine('❌', label, merged));
+    appendLine(formatToolLine('❌', label, merged));
     return { continue: true };
   }
 
@@ -386,7 +446,7 @@ export const postToolUseVisibility: HookCallback = async (input, toolUseId) => {
       const shape = resultShape(toolName, i.tool_response);
       const elapsedStr = `done in ${(elapsed / 1000).toFixed(1)}s`;
       const finalDesc = shape ? `${elapsedStr}  ${shape}` : elapsedStr;
-      emit(formatToolLine('🖥️', 'bash', finalDesc));
+      appendLine(formatToolLine('🖥️', 'bash', finalDesc));
     }
   }
 
