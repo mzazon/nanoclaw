@@ -58,7 +58,8 @@ export interface ChannelDeliveryAdapter {
     content: string,
     files?: OutboundFile[],
   ): Promise<string | undefined>;
-  setTyping?(channelType: string, platformId: string, threadId: string | null): Promise<void>;
+  setTyping?(channelType: string, platformId: string, threadId: string | null, messageId?: string): Promise<void>;
+  removeTypingReaction?(channelType: string, platformId: string, messageId: string): Promise<void>;
 }
 
 let deliveryAdapter: ChannelDeliveryAdapter | null = null;

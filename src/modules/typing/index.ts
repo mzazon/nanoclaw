@@ -45,7 +45,8 @@ const HEARTBEAT_FRESH_MS = 6000;
 const POST_DELIVERY_PAUSE_MS = 10000;
 
 interface TypingAdapter {
-  setTyping?(channelType: string, platformId: string, threadId: string | null): Promise<void>;
+  setTyping?(channelType: string, platformId: string, threadId: string | null, messageId?: string): Promise<void>;
+  removeTypingReaction?(channelType: string, platformId: string, messageId: string): Promise<void>;
 }
 
 interface TypingTarget {
@@ -53,6 +54,7 @@ interface TypingTarget {
   channelType: string;
   platformId: string;
   threadId: string | null;
+  messageId: string | null;
   interval: NodeJS.Timeout;
   startedAt: number;
   pausedUntil: number; // epoch ms; 0 = not paused
@@ -72,9 +74,14 @@ export function setTypingAdapter(a: TypingAdapter): void {
   adapter = a;
 }
 
-async function triggerTyping(channelType: string, platformId: string, threadId: string | null): Promise<void> {
+async function triggerTyping(
+  channelType: string,
+  platformId: string,
+  threadId: string | null,
+  messageId?: string,
+): Promise<void> {
   try {
-    await adapter?.setTyping?.(channelType, platformId, threadId);
+    await adapter?.setTyping?.(channelType, platformId, threadId, messageId);
   } catch {
     // Typing is best-effort — don't let it fail delivery or routing.
   }
@@ -96,30 +103,23 @@ export function startTypingRefresh(
   channelType: string,
   platformId: string,
   threadId: string | null,
+  messageId?: string | null,
 ): void {
   const existing = typingRefreshers.get(sessionId);
   if (existing) {
-    // Already refreshing. Fire an immediate tick for the new inbound
-    // event and reset the grace window — the new message restarts
-    // the container-wake latency budget. Also clear any lingering
-    // post-delivery pause: a new inbound means the user expects
-    // typing to show immediately.
-    triggerTyping(channelType, platformId, threadId).catch(() => {});
+    triggerTyping(channelType, platformId, threadId, messageId ?? undefined).catch(() => {});
     existing.startedAt = Date.now();
     existing.pausedUntil = 0;
+    if (messageId) existing.messageId = messageId;
     return;
   }
 
-  // Immediate tick + periodic refresh.
-  triggerTyping(channelType, platformId, threadId).catch(() => {});
+  triggerTyping(channelType, platformId, threadId, messageId ?? undefined).catch(() => {});
   const startedAt = Date.now();
   const interval = setInterval(() => {
     const entry = typingRefreshers.get(sessionId);
-    if (!entry) return; // stopped externally since this tick was scheduled
+    if (!entry) return;
 
-    // Inside a post-delivery pause: skip setTyping but keep the
-    // interval running so we resume automatically once the pause
-    // expires.
     if (entry.pausedUntil > Date.now()) return;
 
     const withinGrace = Date.now() - entry.startedAt < TYPING_GRACE_MS;
@@ -128,21 +128,26 @@ export function startTypingRefresh(
       return;
     }
 
-    // Out of grace AND heartbeat stale — agent is idle, stop refreshing.
     clearInterval(entry.interval);
     typingRefreshers.delete(sessionId);
+    removeTypingReaction(entry);
   }, TYPING_REFRESH_MS);
-  // unref so a stale refresher can't hold the event loop alive.
   interval.unref();
   typingRefreshers.set(sessionId, {
     agentGroupId,
     channelType,
     platformId,
     threadId,
+    messageId: messageId ?? null,
     interval,
     startedAt,
     pausedUntil: 0,
   });
+}
+
+function removeTypingReaction(entry: TypingTarget): void {
+  if (!entry.messageId || entry.threadId) return;
+  adapter?.removeTypingReaction?.(entry.channelType, entry.platformId, entry.messageId).catch(() => {});
 }
 
 /**
@@ -162,4 +167,5 @@ export function stopTypingRefresh(sessionId: string): void {
   if (!entry) return;
   clearInterval(entry.interval);
   typingRefreshers.delete(sessionId);
+  removeTypingReaction(entry);
 }

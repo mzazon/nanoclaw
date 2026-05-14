@@ -159,9 +159,18 @@ async function main(): Promise<void> {
       }
       return adapter.deliver(platformId, threadId, { kind, content: JSON.parse(content), files });
     },
-    async setTyping(channelType: string, platformId: string, threadId: string | null): Promise<void> {
+    async setTyping(
+      channelType: string,
+      platformId: string,
+      threadId: string | null,
+      messageId?: string,
+    ): Promise<void> {
       const adapter = getChannelAdapter(channelType);
-      await adapter?.setTyping?.(platformId, threadId);
+      await adapter?.setTyping?.(channelType, platformId, threadId, messageId);
+    },
+    async removeTypingReaction(channelType: string, platformId: string, messageId: string): Promise<void> {
+      const adapter = getChannelAdapter(channelType);
+      await adapter?.removeTypingReaction?.(channelType, platformId, messageId);
     },
   };
   setDeliveryAdapter(deliveryAdapter);

@@ -133,7 +133,8 @@ export interface ChannelAdapter {
   deliver(platformId: string, threadId: string | null, message: OutboundMessage): Promise<string | undefined>;
 
   // Optional
-  setTyping?(platformId: string, threadId: string | null): Promise<void>;
+  setTyping?(channelType: string, platformId: string, threadId: string | null, messageId?: string): Promise<void>;
+  removeTypingReaction?(channelType: string, platformId: string, messageId: string): Promise<void>;
   syncConversations?(): Promise<ConversationInfo[]>;
   resolveChannelName?(platformId: string): Promise<string | null>;
 

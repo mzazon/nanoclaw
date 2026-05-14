@@ -137,7 +137,7 @@ async function postWithFallback(
       log.warn('postMessage got invalid_blocks, retrying as raw text', { tid });
       return await adapter.postMessage(
         tid,
-        markdownMsg.files ? { raw: rawText, files: markdownMsg.files } as never : rawText,
+        markdownMsg.files ? ({ raw: rawText, files: markdownMsg.files } as never) : rawText,
       );
     }
     throw err;
@@ -537,9 +537,31 @@ export function createChatSdkBridge(config: ChatSdkBridgeConfig): ChannelAdapter
       }
     },
 
-    async setTyping(platformId: string, threadId: string | null) {
+    async setTyping(_channelType: string, platformId: string, threadId: string | null, messageId?: string) {
       const tid = threadId ?? platformId;
-      await adapter.startTyping(tid);
+      try {
+        await adapter.startTyping(tid);
+      } catch {
+        // startTyping may fail or skip for flat channels (no threadTs).
+        // Fall back to reaction-based indicator if we have a messageId.
+      }
+      if (!threadId && messageId && adapter.addReaction) {
+        try {
+          await adapter.addReaction(platformId, messageId, 'hourglass_flowing_sand');
+        } catch {
+          // Best-effort — message may already have the reaction
+        }
+      }
+    },
+
+    async removeTypingReaction(_channelType: string, platformId: string, messageId: string) {
+      if (adapter.removeReaction) {
+        try {
+          await adapter.removeReaction(platformId, messageId, 'hourglass_flowing_sand');
+        } catch {
+          // Best-effort — reaction may already be removed
+        }
+      }
     },
 
     async teardown() {
