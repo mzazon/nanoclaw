@@ -378,8 +378,8 @@ async function deliverMessage(
       : undefined;
 
   const platformMsgId = await deliveryAdapter.deliver(
-    msg.channel_type,
-    msg.platform_id,
+    msg.channel_type!,
+    msg.platform_id!,
     msg.thread_id,
     msg.kind,
     msg.content,
@@ -388,7 +388,7 @@ async function deliverMessage(
 
   // Store the platform message ID for streaming edits
   if (content._streamingId && typeof content._streamingId === 'string' && platformMsgId) {
-    const sk = streamKey(session.id, content._streamingId, msg.channel_type, msg.platform_id);
+    const sk = streamKey(session.id, content._streamingId, msg.channel_type!, msg.platform_id!);
     if (!streamPlatformIds.has(sk)) {
       streamPlatformIds.set(sk, platformMsgId);
     }

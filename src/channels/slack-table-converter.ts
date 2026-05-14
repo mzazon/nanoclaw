@@ -9,8 +9,15 @@
  * Second+ tables or oversized tables fall back to ASCII in code blocks
  * (handled by the Slack adapter's convertTableToBlocks).
  */
-import { parseMarkdown, Table, stringifyMarkdown, type CardElement, type CardChild } from 'chat';
-import type { Root, Content } from 'mdast';
+import {
+  parseMarkdown,
+  Table,
+  stringifyMarkdown,
+  type CardElement,
+  type CardChild,
+  type Root,
+  type Content,
+} from 'chat';
 
 const TABLE_REGEX = /\n?\|[^\n]+\|\s*\n\|[\s:|-]+\|\s*\n(?:\|[^\n]+\|\s*\n?)*/;
 
@@ -43,19 +50,11 @@ function astNodeToCardChild(node: Content): CardChild | null {
       const cells = 'children' in row ? (row.children as Content[]) : [];
       return cells.map(cellText);
     });
-    const align =
-      'align' in node && Array.isArray(node.align)
-        ? (node.align as Array<'left' | 'center' | 'right' | null>)
-        : undefined;
-    return Table({
-      headers,
-      rows: dataRows,
-      ...(align ? { align: align.map((a) => a ?? undefined) as Array<'left' | 'center' | 'right' | undefined> } : {}),
-    });
+    return Table({ headers, rows: dataRows });
   }
   const md = stringifyMarkdown({ type: 'root', children: [node] } as Root);
   if (!md.trim()) return null;
-  return { type: 'text' as const, content: md.trim(), style: 'markdown' as const };
+  return { type: 'text' as const, content: md.trim(), style: 'plain' as const };
 }
 
 export function markdownToCardWithTables(markdown: string): CardElement {

@@ -23,7 +23,7 @@ describe('markdownToCardWithTables', () => {
     expect(card.type).toBe('card');
     expect(card.children.length).toBe(3);
 
-    expect(card.children[0]).toMatchObject({ type: 'text', style: 'markdown' });
+    expect(card.children[0]).toMatchObject({ type: 'text', style: 'plain' });
     expect((card.children[0] as { content: string }).content).toContain('Before');
 
     expect(card.children[1]).toMatchObject({
@@ -35,7 +35,7 @@ describe('markdownToCardWithTables', () => {
       ],
     });
 
-    expect(card.children[2]).toMatchObject({ type: 'text', style: 'markdown' });
+    expect(card.children[2]).toMatchObject({ type: 'text', style: 'plain' });
     expect((card.children[2] as { content: string }).content).toContain('After');
   });
 
