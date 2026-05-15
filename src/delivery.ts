@@ -360,12 +360,15 @@ async function deliverMessage(
   // Tool-visibility streaming: if content has _streamingId, route
   // subsequent messages as edits of the first delivered message.
   if (content._streamingId && typeof content._streamingId === 'string') {
-    const sk = streamKey(session.id, content._streamingId, msg.channel_type, msg.platform_id);
+    const sk = streamKey(session.id, content._streamingId, msg.channel_type!, msg.platform_id!);
     const existingPlatformId = streamPlatformIds.get(sk);
     if (existingPlatformId) {
+      log.debug('Tool-vis stream edit', { streamKey: sk, editTarget: existingPlatformId, msgId: msg.id });
       content.operation = 'edit';
       content.messageId = existingPlatformId;
       msg = { ...msg, content: JSON.stringify(content) };
+    } else {
+      log.debug('Tool-vis stream new', { streamKey: sk, msgId: msg.id, mapSize: streamPlatformIds.size });
     }
   }
 
@@ -387,10 +390,13 @@ async function deliverMessage(
   );
 
   // Store the platform message ID for streaming edits
-  if (content._streamingId && typeof content._streamingId === 'string' && platformMsgId) {
+  if (content._streamingId && typeof content._streamingId === 'string') {
     const sk = streamKey(session.id, content._streamingId, msg.channel_type!, msg.platform_id!);
-    if (!streamPlatformIds.has(sk)) {
+    if (platformMsgId && !streamPlatformIds.has(sk)) {
+      log.debug('Tool-vis stream mapped', { streamKey: sk, platformMsgId });
       streamPlatformIds.set(sk, platformMsgId);
+    } else if (!platformMsgId) {
+      log.debug('Tool-vis stream: no platformMsgId from delivery', { streamKey: sk, msgId: msg.id });
     }
   }
 
