@@ -297,6 +297,26 @@ export function createChatSdkBridge(config: ChatSdkBridgeConfig): ChannelAdapter
         await setupConfig.onInbound(channelId, thread.id, await messageToInbound(message, false, true));
       });
 
+      // Slash commands — Slack and other platforms that route /command events
+      // through the Chat SDK. The event carries channel but no thread, so
+      // commands land at the channel level (works for DMs and shared sessions;
+      // per-thread sessions get the channel's default routing).
+      chat.onSlashCommand(async (event) => {
+        const commandText = event.text ? `${event.command} ${event.text}` : event.command;
+        const senderId = event.user.userId;
+        const senderName = (event.user as { fullName?: string }).fullName ?? event.user.userName ?? senderId;
+        const channelId = event.channel.id;
+        log.info('Slash command received', { command: event.command, text: event.text, channelId, senderId });
+        await setupConfig.onInbound(channelId, channelId, {
+          id: `slashcmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          kind: 'chat',
+          content: { text: commandText, senderId, sender: senderName, senderName },
+          timestamp: new Date().toISOString(),
+          isMention: true,
+          isGroup: true,
+        });
+      });
+
       // Handle button clicks (ask_user_question)
       chat.onAction(async (event) => {
         if (!event.actionId.startsWith('ncq:')) return;

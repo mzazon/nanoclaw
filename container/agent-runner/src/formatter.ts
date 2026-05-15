@@ -66,6 +66,19 @@ export function isClearCommand(msg: MessageInRow): boolean {
   return text.toLowerCase().startsWith('/clear');
 }
 
+// LOCAL-003: commands the Agent SDK ignores (CLI-only features).
+// Intercepted by the poll loop to generate synthetic responses.
+const RUNNER_HANDLED_COMMANDS = new Set(['/context', '/cost']);
+
+export function getRunnerHandledCommand(msg: MessageInRow): string | null {
+  if (msg.kind !== 'chat' && msg.kind !== 'chat-sdk') return null;
+  const content = parseContent(msg.content);
+  const text = (content.text || '').trim();
+  if (!text.startsWith('/')) return null;
+  const command = text.split(/\s/)[0].toLowerCase();
+  return RUNNER_HANDLED_COMMANDS.has(command) ? command : null;
+}
+
 /**
  * True for any chat that needs the outer loop's command path: /clear plus
  * admin/passthrough slash commands the SDK can only dispatch when they are

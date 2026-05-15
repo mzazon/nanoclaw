@@ -5,11 +5,13 @@ import { getInboundDb, touchHeartbeat, clearStaleProcessingAcks } from './db/con
 import { clearContinuation, migrateLegacyContinuation, setContinuation } from './db/session-state.js';
 import { clearCurrentInReplyTo, setCurrentInReplyTo } from './current-batch.js';
 import { resetToolVisStream } from './hooks/tool-visibility.js';
+import { getSessionRouting } from './db/session-routing.js';
 import {
   formatMessages,
   extractRouting,
   categorizeMessage,
   isClearCommand,
+  getRunnerHandledCommand,
   isRunnerCommand,
   stripInternalTags,
   type RoutingContext,
@@ -25,6 +27,74 @@ function log(msg: string): void {
 
 function generateId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// LOCAL-003: generate responses for commands the Agent SDK ignores.
+// These are CLI-only features (/context, /cost) that produce terminal
+// output in Claude Code but emit nothing in headless agent mode.
+function handleRunnerCommand(command: string, continuation: string | undefined): string {
+  if (command === '/context') {
+    return getContextInfo(continuation);
+  }
+  if (command === '/cost') {
+    return 'Cost tracking is not available in headless agent mode. Check your Anthropic dashboard for API usage.';
+  }
+  return `Unknown command: ${command}`;
+}
+
+function getContextInfo(continuation: string | undefined): string {
+  const compactWindow = process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW || '165000';
+  const lines: string[] = [];
+
+  if (!continuation) {
+    lines.push('No active session (no transcript).');
+    lines.push(`Auto-compact threshold: ${Number(compactWindow).toLocaleString()} tokens`);
+    return lines.join('\n');
+  }
+
+  const fs = require('fs');
+  const transcriptDir = '/home/node/.claude/projects/-workspace-agent';
+  const transcriptPath = `${transcriptDir}/${continuation}.jsonl`;
+
+  try {
+    if (fs.existsSync(transcriptPath)) {
+      const stat = fs.statSync(transcriptPath);
+      const sizeKb = Math.round(stat.size / 1024);
+      const content = fs.readFileSync(transcriptPath, 'utf-8');
+      const transcriptLines = content.split('\n').filter((l: string) => l.trim());
+      const messageCount = transcriptLines.length;
+
+      // Extract token usage from the most recent assistant message with usage data
+      let contextTokens: number | null = null;
+      for (let i = transcriptLines.length - 1; i >= 0; i--) {
+        try {
+          const obj = JSON.parse(transcriptLines[i]);
+          const usage = obj?.message?.usage;
+          if (usage && typeof usage.input_tokens === 'number') {
+            contextTokens = (usage.input_tokens || 0)
+              + (usage.cache_creation_input_tokens || 0)
+              + (usage.cache_read_input_tokens || 0);
+            break;
+          }
+        } catch { /* skip malformed lines */ }
+      }
+
+      lines.push(`Session: \`${continuation}\``);
+      if (contextTokens !== null) {
+        const threshold = Number(compactWindow);
+        const pct = Math.round((contextTokens / threshold) * 100);
+        lines.push(`Context: ${contextTokens.toLocaleString()} tokens (${pct}% of ${threshold.toLocaleString()} compact threshold)`);
+      }
+      lines.push(`Transcript: ${messageCount} messages, ${sizeKb.toLocaleString()} KB`);
+    } else {
+      lines.push(`Session: \`${continuation}\` (transcript not found)`);
+    }
+  } catch {
+    lines.push(`Session: \`${continuation}\` (could not read transcript)`);
+  }
+
+  lines.push(`Auto-compact threshold: ${Number(compactWindow).toLocaleString()} tokens`);
+  return lines.join('\n');
 }
 
 export interface PollLoopConfig {
@@ -102,6 +172,17 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
     markProcessing(ids);
 
     const routing = extractRouting(messages);
+    // PR #2440: session_routing is the authoritative reply channel set by the
+    // host on every container wake. Override extractRouting (which reads
+    // messages[0]) because agent-type inbound messages (e.g. approval
+    // notifications) can appear first and misdirect replies to the agent
+    // channel instead of the user's channel.
+    const sessionRouting = getSessionRouting();
+    if (sessionRouting.channel_type && sessionRouting.platform_id) {
+      routing.channelType = sessionRouting.channel_type;
+      routing.platformId = sessionRouting.platform_id;
+      routing.threadId = sessionRouting.thread_id;
+    }
 
     // Command handling: the host router gates filtered and unauthorized
     // admin commands before they reach the container. The only command
@@ -121,6 +202,21 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
           channel_type: routing.channelType,
           thread_id: routing.threadId,
           content: JSON.stringify({ text: 'Session cleared.' }),
+        });
+        commandIds.push(msg.id);
+        continue;
+      }
+      // LOCAL-003: handle commands the Agent SDK ignores (CLI-only features)
+      const runnerCmd = getRunnerHandledCommand(msg);
+      if (runnerCmd) {
+        const response = handleRunnerCommand(runnerCmd, continuation);
+        writeMessageOut({
+          id: generateId(),
+          kind: 'chat',
+          platform_id: routing.platformId,
+          channel_type: routing.channelType,
+          thread_id: routing.threadId,
+          content: JSON.stringify({ text: response }),
         });
         commandIds.push(msg.id);
         continue;
@@ -378,6 +474,7 @@ async function processQuery(
         // follow-up pushes. The agent may have responded via MCP
         // (send_message) mid-turn, or the message may not need a response
         // at all — either way the turn is finished.
+        resetToolVisStream();
         markCompleted(initialBatchIds);
         if (event.text) {
           const { hasUnwrapped } = dispatchResultText(event.text, routing);
