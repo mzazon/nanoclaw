@@ -29,10 +29,7 @@ type ResponseFrame =
 // Paths
 // ---------------------------------------------------------------------------
 
-import { INBOUND_DB as PATHS_INBOUND, OUTBOUND_DB as PATHS_OUTBOUND } from '../paths.js';
-
-const INBOUND_DB = PATHS_INBOUND;
-const OUTBOUND_DB = PATHS_OUTBOUND;
+import { INBOUND_DB, OUTBOUND_DB } from '../paths.js';
 
 // ---------------------------------------------------------------------------
 // DB transport

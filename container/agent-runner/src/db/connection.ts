@@ -20,11 +20,7 @@
 import { Database } from 'bun:sqlite';
 import fs from 'fs';
 
-import { INBOUND_DB, OUTBOUND_DB, HEARTBEAT_PATH as PATHS_HEARTBEAT } from '../paths.js';
-
-const DEFAULT_INBOUND_PATH = INBOUND_DB;
-const DEFAULT_OUTBOUND_PATH = OUTBOUND_DB;
-const DEFAULT_HEARTBEAT_PATH = PATHS_HEARTBEAT;
+import { INBOUND_DB as DEFAULT_INBOUND_PATH, OUTBOUND_DB as DEFAULT_OUTBOUND_PATH, HEARTBEAT_PATH as DEFAULT_HEARTBEAT_PATH } from '../paths.js';
 
 let _inbound: Database | null = null;
 let _outbound: Database | null = null;

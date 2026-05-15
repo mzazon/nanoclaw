@@ -5,6 +5,7 @@
  */
 import { ChildProcess, execSync, spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import { OneCLI } from '@onecli-sh/sdk';
@@ -50,8 +51,18 @@ import type { AgentGroup, Session } from './types.js';
 
 const onecli = new OneCLI({ url: ONECLI_URL, apiKey: ONECLI_API_KEY });
 
+// LOCAL-010: cached bun binary path (systemd has a stripped PATH)
+let _bunBin: string | undefined;
+function resolveBunBin(): string {
+  if (_bunBin) return _bunBin;
+  const home = process.env.HOME || os.homedir();
+  const candidate = path.join(home, '.bun', 'bin', 'bun');
+  _bunBin = fs.existsSync(candidate) ? candidate : 'bun';
+  return _bunBin;
+}
+
 /** Active containers tracked by session ID. */
-const activeContainers = new Map<string, { process: ChildProcess; containerName: string }>();
+const activeContainers = new Map<string, { process: ChildProcess; containerName: string; isHostProcess: boolean }>();
 
 /** Snapshot of active container entries for the dashboard pusher. */
 export function getActiveContainerEntries(): Array<{ sessionId: string; containerName: string }> {
@@ -170,7 +181,7 @@ async function spawnContainer(session: Session): Promise<void> {
 
   const container = spawn(CONTAINER_RUNTIME_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
-  activeContainers.set(session.id, { process: container, containerName });
+  activeContainers.set(session.id, { process: container, containerName, isHostProcess: false });
   markContainerRunning(session.id);
 
   // Log stderr
@@ -221,18 +232,12 @@ async function spawnHostProcess(
   const processName = `host-${agentGroup.folder}-${Date.now()}`;
 
   const home = containerConfig.hostHome
-    ? (process.env.HOME || '/home/' + (process.env.USER || 'node'))
+    ? (process.env.HOME || os.homedir())
     : composeHostHome(agentGroup.id, containerConfig);
 
   log.info('Spawning host-agent process', { sessionId: session.id, agentGroup: agentGroup.name, processName, home });
 
   fs.rmSync(heartbeatPath(agentGroup.id, session.id), { force: true });
-
-  // Resolve bun from common locations — systemd services have a stripped PATH
-  const realHome = process.env.HOME || '/home/' + (process.env.USER || 'node');
-  const bunBin = [realHome]
-    .map(h => path.join(h, '.bun', 'bin', 'bun'))
-    .find(p => fs.existsSync(p)) || 'bun';
 
   // OneCLI: ensure agent + get proxy env for API auth via the SDK
   // (not the CLI binary, which needs its own auth config).
@@ -254,7 +259,7 @@ async function spawnHostProcess(
     log.warn('OneCLI getContainerConfig failed — host-agent will lack API auth', { err });
   }
 
-  const child = spawn(bunBin, ['run', path.join(projectRoot, 'container', 'agent-runner', 'src', 'index.ts')], {
+  const child = spawn(resolveBunBin(), ['run', path.join(projectRoot, 'container', 'agent-runner', 'src', 'index.ts')], {
     cwd: sessDir,
     env: {
       ...process.env,
@@ -274,7 +279,7 @@ async function spawnHostProcess(
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  activeContainers.set(session.id, { process: child, containerName: processName });
+  activeContainers.set(session.id, { process: child, containerName: processName, isHostProcess: true });
   markContainerRunning(session.id);
 
   child.stderr?.on('data', (data) => {
@@ -310,7 +315,7 @@ export function killContainer(sessionId: string, reason: string, onExit?: () => 
 
   log.info('Killing container', { sessionId, reason, containerName: entry.containerName });
   // LOCAL-010: host-agent processes use SIGTERM directly
-  if (entry.containerName.startsWith('host-')) {
+  if (entry.isHostProcess) {
     entry.process.kill('SIGTERM');
     return;
   }
