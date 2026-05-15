@@ -1,30 +1,23 @@
 {
   "mcpServers": {},
   "packages": {
-    "apt": [
-      "gh"
-    ],
+    "apt": [],
     "npm": []
   },
   "additionalMounts": [
-    {
-      "hostPath": "/home/mzazon/vault/Sources/Research",
-      "containerPath": "vault/Sources/Research",
-      "readonly": false
-    },
     {
       "hostPath": "/home/mzazon/vault",
       "containerPath": "vault",
       "readonly": true
     },
     {
-      "hostPath": "/home/mzazon/.config/gh",
-      "containerPath": "gh-config",
-      "readonly": true
+      "hostPath": "/home/mzazon/vault/_Inbox",
+      "containerPath": "vault/_Inbox",
+      "readonly": false
     }
   ],
-  "provider": "opencode",
   "skills": "all",
+  "provider": "opencode",
   "groupName": "Gemini",
   "assistantName": "Gemini",
   "agentGroupId": "ag-1777691303593-gemini"
