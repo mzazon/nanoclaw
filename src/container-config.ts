@@ -43,6 +43,9 @@ export interface ContainerConfig {
   maxMessagesPerPrompt?: number;
   model?: string;
   effort?: string;
+  runtime?: string; // LOCAL-010
+  hostHome?: boolean; // LOCAL-010
+  hostPlugins?: string[]; // LOCAL-010
 }
 
 /** Build a `ContainerConfig` from a DB row + agent group identity. */
@@ -63,6 +66,9 @@ export function configFromDb(row: ContainerConfigRow, group: AgentGroup): Contai
     maxMessagesPerPrompt: row.max_messages_per_prompt ?? undefined,
     model: row.model ?? undefined,
     effort: row.effort ?? undefined,
+    runtime: row.runtime ?? 'docker',
+    hostHome: row.host_home === 1,
+    hostPlugins: JSON.parse(row.host_plugins) as string[],
   };
 }
 

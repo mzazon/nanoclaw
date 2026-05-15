@@ -1,3 +1,4 @@
+import { AGENT_DIR, HOST_MODE } from './paths.js';
 import { findByName, getAllDestinations, type DestinationEntry } from './destinations.js';
 import { getPendingMessages, markProcessing, markCompleted, type MessageInRow } from './db/messages-in.js';
 import { writeMessageOut } from './db/messages-out.js';
@@ -53,7 +54,9 @@ function getContextInfo(continuation: string | undefined): string {
   }
 
   const fs = require('fs');
-  const transcriptDir = '/home/node/.claude/projects/-workspace-agent';
+  const projectHash = HOST_MODE ? AGENT_DIR.replace(/\//g, '-') : '-workspace-agent';
+  const home = process.env.HOME || '/home/node';
+  const transcriptDir = `${home}/.claude/projects/${projectHash}`;
   const transcriptPath = `${transcriptDir}/${continuation}.jsonl`;
 
   try {

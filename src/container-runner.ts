@@ -24,6 +24,7 @@ import { getContainerConfig } from './db/container-configs.js';
 import { updateContainerConfigScalars, updateContainerConfigJson } from './db/container-configs.js';
 import { CONTAINER_RUNTIME_BIN, hostGatewayArgs, readonlyMountArgs, stopContainer } from './container-runtime.js';
 import { composeGroupClaudeMd } from './claude-md-compose.js';
+import { composeHostHome } from './host-home.js';
 import { getAgentGroup } from './db/agent-groups.js';
 import { getDb, hasTable } from './db/connection.js';
 import { initGroupFilesystem } from './group-init.js';
@@ -134,6 +135,11 @@ async function spawnContainer(session: Session): Promise<void> {
   // and buildContainerArgs so we don't re-read.
   const containerConfig = materializeContainerJson(agentGroup.id);
 
+  // LOCAL-010: dispatch to host-agent spawn when runtime is 'host'
+  if (containerConfig.runtime === 'host') {
+    return spawnHostProcess(session, agentGroup, containerConfig);
+  }
+
   // Resolve the effective provider + any host-side contribution it declares
   // (extra mounts, env passthrough). Computed once and threaded through both
   // buildMounts and buildContainerArgs so side effects (mkdir, etc.) fire once.
@@ -197,6 +203,102 @@ async function spawnContainer(session: Session): Promise<void> {
   });
 }
 
+// LOCAL-010: Host-agent spawn — runs the agent-runner directly on the host.
+async function spawnHostProcess(
+  session: Session,
+  agentGroup: AgentGroup,
+  containerConfig: import('./container-config.js').ContainerConfig,
+): Promise<void> {
+  const projectRoot = process.cwd();
+  const sessDir = sessionDir(agentGroup.id, session.id);
+  const groupDir = path.resolve(GROUPS_DIR, agentGroup.folder);
+  const claudeDir = path.join(DATA_DIR, 'v2-sessions', agentGroup.id, '.claude-shared');
+
+  initGroupFilesystem(agentGroup);
+  syncSkillSymlinks(claudeDir, containerConfig);
+  composeGroupClaudeMd(agentGroup);
+
+  const processName = `host-${agentGroup.folder}-${Date.now()}`;
+
+  const home = containerConfig.hostHome
+    ? (process.env.HOME || '/home/' + (process.env.USER || 'node'))
+    : composeHostHome(agentGroup.id, containerConfig);
+
+  log.info('Spawning host-agent process', { sessionId: session.id, agentGroup: agentGroup.name, processName, home });
+
+  fs.rmSync(heartbeatPath(agentGroup.id, session.id), { force: true });
+
+  // Resolve bun from common locations — systemd services have a stripped PATH
+  const realHome = process.env.HOME || '/home/' + (process.env.USER || 'node');
+  const bunBin = [realHome]
+    .map(h => path.join(h, '.bun', 'bin', 'bun'))
+    .find(p => fs.existsSync(p)) || 'bun';
+
+  // OneCLI: ensure agent + get proxy env for API auth via the SDK
+  // (not the CLI binary, which needs its own auth config).
+  const agentIdentifier = agentGroup.id;
+  await onecli.ensureAgent({ name: agentGroup.name, identifier: agentIdentifier });
+
+  let onecliEnv: Record<string, string> = {};
+  try {
+    const cc = await onecli.getContainerConfig(agentIdentifier);
+    onecliEnv = cc.env;
+    // Write CA cert to a persistent path so the agent can use it
+    if (cc.caCertificate) {
+      const certPath = path.join(DATA_DIR, '.host-home', 'onecli-ca.crt');
+      fs.mkdirSync(path.dirname(certPath), { recursive: true });
+      fs.writeFileSync(certPath, cc.caCertificate);
+      onecliEnv.NODE_EXTRA_CA_CERTS = certPath;
+    }
+  } catch (err) {
+    log.warn('OneCLI getContainerConfig failed — host-agent will lack API auth', { err });
+  }
+
+  const child = spawn(bunBin, ['run', path.join(projectRoot, 'container', 'agent-runner', 'src', 'index.ts')], {
+    cwd: sessDir,
+    env: {
+      ...process.env,
+      ...onecliEnv,
+      HOME: home,
+      NANOCLAW_HOST_MODE: 'true',
+      NANOCLAW_WORKSPACE: sessDir,
+      NANOCLAW_AGENT_DIR: groupDir,
+      NANOCLAW_EXTRA_DIR: path.join(groupDir, '.host-extra'),
+      NANOCLAW_GLOBAL_DIR: path.join(GROUPS_DIR, 'global'),
+      NANOCLAW_SKILLS_DIR: path.join(projectRoot, 'container', 'skills'),
+      NANOCLAW_SHARED_CLAUDE_MD: path.join(projectRoot, 'container', 'CLAUDE.md'),
+      TZ: TIMEZONE,
+      NO_PROXY: 'localhost,127.0.0.1',
+      no_proxy: 'localhost,127.0.0.1',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  activeContainers.set(session.id, { process: child, containerName: processName });
+  markContainerRunning(session.id);
+
+  child.stderr?.on('data', (data) => {
+    for (const line of data.toString().trim().split('\n')) {
+      if (line) log.debug(line, { container: agentGroup.folder });
+    }
+  });
+  child.stdout?.on('data', () => {});
+
+  child.on('close', (code) => {
+    activeContainers.delete(session.id);
+    markContainerStopped(session.id);
+    stopTypingRefresh(session.id);
+    log.info('Host-agent exited', { sessionId: session.id, code, processName });
+  });
+
+  child.on('error', (err) => {
+    activeContainers.delete(session.id);
+    markContainerStopped(session.id);
+    stopTypingRefresh(session.id);
+    log.error('Host-agent spawn error', { sessionId: session.id, err });
+  });
+}
+
 /** Kill a container for a session. */
 export function killContainer(sessionId: string, reason: string, onExit?: () => void): void {
   const entry = activeContainers.get(sessionId);
@@ -207,6 +309,11 @@ export function killContainer(sessionId: string, reason: string, onExit?: () => 
   }
 
   log.info('Killing container', { sessionId, reason, containerName: entry.containerName });
+  // LOCAL-010: host-agent processes use SIGTERM directly
+  if (entry.containerName.startsWith('host-')) {
+    entry.process.kill('SIGTERM');
+    return;
+  }
   try {
     stopContainer(entry.containerName);
   } catch {

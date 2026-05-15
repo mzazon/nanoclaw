@@ -27,6 +27,7 @@ import { fileURLToPath } from 'url';
 
 import { loadConfig } from './config.js';
 import { buildSystemPromptAddendum } from './destinations.js';
+import { AGENT_DIR, EXTRA_DIR, GLOBAL_DIR, HOST_MODE } from './paths.js';
 // Providers barrel — each enabled provider self-registers on import.
 // Provider skills append imports to providers/index.ts.
 import './providers/index.js';
@@ -37,7 +38,7 @@ function log(msg: string): void {
   console.error(`[agent-runner] ${msg}`);
 }
 
-const CWD = '/workspace/agent';
+const CWD = AGENT_DIR;
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -55,7 +56,7 @@ async function main(): Promise<void> {
 
   // Discover additional directories mounted at /workspace/extra/*
   const additionalDirectories: string[] = [];
-  const extraBase = '/workspace/extra';
+  const extraBase = EXTRA_DIR;
   if (fs.existsSync(extraBase)) {
     for (const entry of fs.readdirSync(extraBase)) {
       const fullPath = path.join(extraBase, entry);

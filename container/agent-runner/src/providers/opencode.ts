@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from 'child_process';
 
 import { createOpencodeClient, type OpencodeClient } from '@opencode-ai/sdk';
 
+import { AGENT_DIR, GLOBAL_DIR } from '../paths.js';
 import { registerProvider } from './provider-registry.js';
 import type { AgentProvider, AgentQuery, ProviderEvent, ProviderOptions, QueryInput } from './types.js';
 import { mcpServersToOpenCodeConfig } from './mcp-to-opencode.js';
@@ -63,8 +64,8 @@ function spawnOpencodeServer(config: Record<string, unknown>, timeoutMs = 10_000
 }
 
 function readClaudeMdForPrompt(): string | undefined {
-  const groupPath = '/workspace/agent/CLAUDE.md';
-  const globalPath = '/workspace/global/CLAUDE.md';
+  const groupPath = `${AGENT_DIR}/CLAUDE.md`;
+  const globalPath = `${GLOBAL_DIR}/CLAUDE.md`;
   let content = '';
   if (fs.existsSync(groupPath)) {
     content += fs.readFileSync(groupPath, 'utf-8');

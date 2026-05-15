@@ -65,6 +65,9 @@ export function backfillContainerConfigs(): void {
       packages_npm: JSON.stringify(legacy.packages?.npm ?? []),
       additional_mounts: JSON.stringify(legacy.additionalMounts ?? []),
       cli_scope: 'group',
+      runtime: 'docker',
+      host_home: 0,
+      host_plugins: '[]',
       updated_at: new Date().toISOString(),
     };
 
