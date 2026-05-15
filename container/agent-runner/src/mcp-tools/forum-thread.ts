@@ -35,12 +35,12 @@ export const createForumThread: McpToolDefinition = {
   tool: {
     name: 'create_forum_thread',
     description:
-      'Create a new forum thread (topic) in a Discord forum channel you have as a destination. Blocks until the thread is created and returns the thread_id for use with send_message.',
+      'Create a new thread in a channel you have as a destination. On Discord this creates a forum thread; on Slack and other platforms it posts a top-level message that starts a thread. Blocks until the thread is created and returns the thread_id for use with send_message.',
     inputSchema: {
       type: 'object' as const,
       properties: {
         to: { type: 'string', description: 'Destination name (e.g., "research")' },
-        title: { type: 'string', description: 'Forum thread title' },
+        title: { type: 'string', description: 'Thread title' },
         body: { type: 'string', description: 'Initial message body (markdown)' },
       },
       required: ['to', 'title', 'body'],
@@ -55,7 +55,6 @@ export const createForumThread: McpToolDefinition = {
     const dest = findByName(to);
     if (!dest) return err(`Unknown destination "${to}".`);
     if (dest.type !== 'channel') return err(`Destination "${to}" is not a channel.`);
-    if (dest.channelType !== 'discord') return err(`create_forum_thread only works with Discord channels.`);
 
     const requestId = generateId();
     writeMessageOut({
