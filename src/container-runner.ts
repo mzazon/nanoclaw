@@ -221,7 +221,12 @@ function attachProcessLifecycle(child: ChildProcess, sessionId: string, groupFol
     markContainerStopped(sessionId);
     stopTypingRefresh(sessionId);
     if (pidFile) fs.rmSync(pidFile, { force: true });
-    log.error('Process spawn error', { sessionId, err, containerName: entry?.containerName, isHost: entry?.isHostProcess });
+    log.error('Process spawn error', {
+      sessionId,
+      err,
+      containerName: entry?.containerName,
+      isHost: entry?.isHostProcess,
+    });
   });
 }
 

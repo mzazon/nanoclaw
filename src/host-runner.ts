@@ -103,7 +103,9 @@ export async function spawnHostProcess(
 
   // Mirrors buildMounts in container-runner.ts — both paths need this.
   initGroupFilesystem(agentGroup);
-  syncSkillSymlinks(path.join(claudeDir, 'skills'), containerConfig, (s) => path.join(projectRoot, 'container', 'skills', s));
+  syncSkillSymlinks(path.join(claudeDir, 'skills'), containerConfig, (s) =>
+    path.join(projectRoot, 'container', 'skills', s),
+  );
   composeGroupClaudeMd(agentGroup);
 
   const name = `host-${agentGroup.folder}-${Date.now()}`;

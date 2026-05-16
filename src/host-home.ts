@@ -48,7 +48,11 @@ export function composeHostHome(agentGroupId: string, config: ContainerConfig): 
         continue;
       }
       // Remove stale symlink, create fresh
-      try { fs.unlinkSync(targetLink); } catch { /* not exists */ }
+      try {
+        fs.unlinkSync(targetLink);
+      } catch {
+        /* not exists */
+      }
       fs.symlinkSync(hostSource, targetLink);
     }
     log.debug('Host plugins symlinked', { plugins: config.hostPlugins });
@@ -61,7 +65,9 @@ export function composeHostHome(agentGroupId: string, config: ContainerConfig): 
     const target = path.join(realHome, name);
     const link = path.join(homeDir, name);
     if (!fs.existsSync(target)) continue;
-    try { fs.lstatSync(link); } catch {
+    try {
+      fs.lstatSync(link);
+    } catch {
       fs.symlinkSync(target, link);
     }
   }
