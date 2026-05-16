@@ -178,11 +178,15 @@ export function writeSessionRouting(agentGroupId: string, sessionId: string): vo
   if (!channelType || !platformId) {
     try {
       const row = db
-        .prepare('SELECT channel_type, platform_id, thread_id FROM messages_in WHERE channel_type IS NOT NULL AND channel_type != \'\' ORDER BY seq DESC LIMIT 1')
+        .prepare(
+          "SELECT channel_type, platform_id, thread_id FROM messages_in WHERE channel_type IS NOT NULL AND channel_type != '' ORDER BY seq DESC LIMIT 1",
+        )
         .get() as { channel_type?: string; platform_id?: string; thread_id?: string } | undefined;
       if (row?.channel_type) channelType = row.channel_type;
       if (row?.platform_id) platformId = row.platform_id;
-    } catch { /* table may not exist */ }
+    } catch {
+      /* table may not exist */
+    }
   }
   try {
     upsertSessionRouting(db, {
