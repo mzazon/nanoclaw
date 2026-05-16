@@ -44,7 +44,7 @@ import {
 } from './db/session-db.js';
 import { log } from './log.js';
 import { openInboundDb, openOutboundDb, openOutboundDbRw, inboundDbPath, heartbeatPath } from './session-manager.js';
-import { isContainerRunning, killContainer, wakeContainer } from './container-runner.js';
+import { isContainerRunning, killContainer, wakeContainer, getInteractiveEntry } from './container-runner.js';
 import type { Session } from './types.js';
 
 /**
@@ -186,6 +186,31 @@ async function sweepSession(session: Session): Promise<void> {
     }
 
     const alive = isContainerRunning(session.id);
+
+    // 2b. Interactive session guard — check PTY buffer for rate-limit prompts.
+    const interactiveEntry = getInteractiveEntry(session.id);
+    if (alive && interactiveEntry) {
+      const { scanPtyBuffer, decideAction, executeAction } = await import('./interactive-guard.js');
+      const signal = scanPtyBuffer(interactiveEntry.ptyBuffer.data);
+      const hbStaleMs = Date.now() - heartbeatMtimeMs(agentGroup.id, session.id);
+      const action = decideAction({
+        bufferSignal: signal,
+        heartbeatStaleMs: hbStaleMs,
+        processAlive: true,
+        pendingMessages: dueCount,
+      });
+      if (action !== 'ok') {
+        executeAction(
+          action,
+          session.id,
+          (data: string) => interactiveEntry.process.stdin?.write(data),
+          () => killContainer(session.id, `interactive-guard-${action}`),
+        );
+        if (action === 'send-enter') {
+          interactiveEntry.ptyBuffer.data = '';
+        }
+      }
+    }
 
     // 3. Running-container SLA: absolute ceiling + per-claim stuck rules.
     if (alive && outDb) {

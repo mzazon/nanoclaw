@@ -1,6 +1,6 @@
 # Interactive Runtime — Channel-Plugin Architecture
 
-**Status:** Design complete, ready for implementation planning
+**Status:** Implemented (v1)
 **Date:** 2026-05-16
 **Supersedes:** `~/vault/_Inbox/2026-05-15 NanoClaw Interactive Provider Spec.md` (PTY + hooks approach)
 

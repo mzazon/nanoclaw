@@ -58,6 +58,7 @@ interface ActiveEntry {
   containerName: string;
   isHostProcess: boolean;
   pidFile?: string;
+  ptyBuffer?: { data: string };
 }
 
 /** Active containers tracked by session ID. */
@@ -87,6 +88,12 @@ export function getActiveContainerCount(): number {
 
 export function isContainerRunning(sessionId: string): boolean {
   return activeContainers.has(sessionId);
+}
+
+export function getInteractiveEntry(sessionId: string): { ptyBuffer: { data: string }; process: ChildProcess } | null {
+  const entry = activeContainers.get(sessionId);
+  if (!entry?.ptyBuffer) return null;
+  return { ptyBuffer: entry.ptyBuffer, process: entry.process };
 }
 
 /**
@@ -153,6 +160,22 @@ async function spawnContainer(session: Session): Promise<void> {
       containerName: result.name,
       isHostProcess: true,
       pidFile: result.pidFile,
+    });
+    markContainerRunning(session.id);
+    attachProcessLifecycle(result.child, session.id, agentGroup.folder, result.pidFile);
+    return;
+  }
+
+  // Interactive runtime: CC in TUI mode with channel plugin bridge
+  if (containerConfig.runtime === 'interactive') {
+    const { spawnInteractiveSession } = await import('./interactive-runner.js');
+    const result = await spawnInteractiveSession(session, agentGroup, containerConfig);
+    activeContainers.set(session.id, {
+      process: result.child,
+      containerName: result.name,
+      isHostProcess: true,
+      pidFile: result.pidFile,
+      ptyBuffer: result.ptyBuffer,
     });
     markContainerRunning(session.id);
     attachProcessLifecycle(result.child, session.id, agentGroup.folder, result.pidFile);

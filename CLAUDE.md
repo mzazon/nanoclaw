@@ -65,6 +65,8 @@ For ad-hoc queries from skills or scripts, use the in-tree wrapper rather than t
 | `src/host-sweep.ts` | 60s sweep: `processing_ack` sync, stale detection, due-message wake, recurrence |
 | `src/session-manager.ts` | Resolves sessions; opens `inbound.db` / `outbound.db`; manages heartbeat path |
 | `src/container-runner.ts` | Spawns per-agent-group Docker containers with session DB + outbox mounts, OneCLI `ensureAgent` |
+| `src/interactive-runner.ts` | Spawns CC in interactive mode with channel plugin bridge (subscription billing) |
+| `src/interactive-guard.ts` | Sweep integration for interactive session health (rate limits, crashes, idle) |
 | `src/container-runtime.ts` | Runtime selection (Docker vs Apple containers), orphan cleanup |
 | `src/modules/permissions/access.ts` | `canAccessAgentGroup` — owner / global admin / scoped admin / member resolution against `user_roles` + `agent_group_members` |
 | `src/modules/approvals/primitive.ts` | `pickApprover`, `pickApprovalDelivery`, `requestApproval`, approval-handler registry |
@@ -79,6 +81,7 @@ For ad-hoc queries from skills or scripts, use the in-tree wrapper rather than t
 | `src/channels/` | Channel adapter infra (registry, Chat SDK bridge); specific channel adapters are skill-installed from the `channels` branch |
 | `src/providers/` | Host-side provider container-config (`claude` baked in; `opencode` etc. installed from the `providers` branch) |
 | `container/agent-runner/src/` | Agent-runner: poll loop, formatter, provider abstraction, MCP tools, destinations |
+| `bridge/server.ts` | Channel plugin MCP server — bridges session DBs to CC `claude/channel` contract for interactive runtime |
 | `container/skills/` | Container skills mounted into every agent session (`onecli-gateway`, `welcome`, `self-customize`, `agent-browser`, `slack-formatting`) |
 | `groups/<folder>/` | Per-agent-group filesystem (CLAUDE.md, skills, per-group `agent-runner-src/` overlay) |
 | `scripts/init-first-agent.ts` | Bootstrap the first DM-wired agent (used by `/init-first-agent` skill) |
@@ -250,6 +253,10 @@ pnpm test             # Host tests (vitest)
 # Agent-runner (Bun — separate package tree under container/agent-runner/)
 cd container/agent-runner && bun install   # After editing agent-runner deps
 cd container/agent-runner && bun test      # Container tests (bun:test)
+
+# Bridge channel plugin (Bun — separate package tree under bridge/)
+cd bridge && bun install                   # After editing bridge deps
+cd bridge && bun test                      # Bridge tests (bun:test)
 ```
 
 Container typecheck is a separate tsconfig — if you edit `container/agent-runner/src/`, run `pnpm exec tsc -p container/agent-runner/tsconfig.json --noEmit` from root (or `bun run typecheck` from `container/agent-runner/`).

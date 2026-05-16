@@ -1,0 +1,107 @@
+import { describe, test, expect } from 'vitest';
+import { buildInteractiveEnv, buildMcpJson, resolveClaudeBin, buildSpawnArgs } from './interactive-runner.js';
+
+describe('interactive-runner', () => {
+  describe('buildInteractiveEnv', () => {
+    test('includes real HOME and session vars', () => {
+      const env = buildInteractiveEnv({
+        baseEnv: { HOME: '/home/test', PATH: '/usr/bin' },
+        sessionDir: '/data/sessions/abc/123',
+        agentGroupId: 'group-1',
+        assistantName: 'TestBot',
+        timezone: 'America/New_York',
+      });
+      expect(env.HOME).toBe('/home/test');
+      expect(env.NANOCLAW_SESSION_DIR).toBe('/data/sessions/abc/123');
+      expect(env.NANOCLAW_AGENT_GROUP_ID).toBe('group-1');
+      expect(env.NANOCLAW_ASSISTANT_NAME).toBe('TestBot');
+      expect(env.TZ).toBe('America/New_York');
+    });
+
+    test('preserves base env vars', () => {
+      const env = buildInteractiveEnv({
+        baseEnv: { HOME: '/home/x', PATH: '/usr/bin', CUSTOM: 'value' },
+        sessionDir: '/tmp/s',
+        agentGroupId: 'g1',
+        timezone: 'UTC',
+      });
+      expect(env.CUSTOM).toBe('value');
+      expect(env.PATH).toBe('/usr/bin');
+    });
+
+    test('omits NANOCLAW_ASSISTANT_NAME when not provided', () => {
+      const env = buildInteractiveEnv({
+        baseEnv: { HOME: '/home/x' },
+        sessionDir: '/tmp/s',
+        agentGroupId: 'g1',
+        timezone: 'UTC',
+      });
+      expect(env.NANOCLAW_ASSISTANT_NAME).toBeUndefined();
+    });
+  });
+
+  describe('buildMcpJson', () => {
+    test('generates correct server config', () => {
+      const json = buildMcpJson('/app/bridge/server.ts');
+      const parsed = JSON.parse(json);
+      expect(parsed.mcpServers['nanoclaw-bridge']).toBeDefined();
+      expect(parsed.mcpServers['nanoclaw-bridge'].command).toBe('bun');
+      expect(parsed.mcpServers['nanoclaw-bridge'].args).toContain('/app/bridge/server.ts');
+    });
+
+    test('produces valid JSON', () => {
+      const json = buildMcpJson('/some/path.ts');
+      expect(() => JSON.parse(json)).not.toThrow();
+    });
+  });
+
+  describe('resolveClaudeBin', () => {
+    test('returns a string', () => {
+      const bin = resolveClaudeBin();
+      expect(typeof bin).toBe('string');
+      expect(bin.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('buildSpawnArgs', () => {
+    test('includes development channels flag', () => {
+      const args = buildSpawnArgs({ continueSession: false, extraFlags: [] });
+      expect(args).toContain('--dangerously-load-development-channels');
+      expect(args).toContain('server:nanoclaw-bridge');
+    });
+
+    test('includes permission mode', () => {
+      const args = buildSpawnArgs({ continueSession: false, extraFlags: [] });
+      expect(args).toContain('--permission-mode');
+      expect(args).toContain('default');
+    });
+
+    test('includes --continue when requested', () => {
+      const args = buildSpawnArgs({ continueSession: true, extraFlags: [] });
+      expect(args).toContain('--continue');
+    });
+
+    test('omits --continue when not requested', () => {
+      const args = buildSpawnArgs({ continueSession: false, extraFlags: [] });
+      expect(args).not.toContain('--continue');
+    });
+
+    test('includes model flag', () => {
+      const args = buildSpawnArgs({ model: 'opus', continueSession: false, extraFlags: [] });
+      const modelIdx = args.indexOf('--model');
+      expect(modelIdx).toBeGreaterThan(-1);
+      expect(args[modelIdx + 1]).toBe('opus');
+    });
+
+    test('omits model when not provided', () => {
+      const args = buildSpawnArgs({ continueSession: false, extraFlags: [] });
+      expect(args).not.toContain('--model');
+    });
+
+    test('includes extra flags', () => {
+      const args = buildSpawnArgs({ continueSession: false, extraFlags: ['--max-turns', '5'] });
+      expect(args).toContain('--max-turns');
+      expect(args).toContain('5');
+    });
+  });
+});

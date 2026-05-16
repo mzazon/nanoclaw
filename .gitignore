@@ -41,6 +41,9 @@ groups/*
 # Container skills with private infra details (IPs, credentials, hostnames)
 container/skills/infra-health/
 
+# Bridge channel plugin (Bun package tree)
+bridge/bun.lock
+
 # Runtime state
 .claude/scheduled_tasks.lock
 
