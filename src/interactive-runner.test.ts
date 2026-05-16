@@ -98,6 +98,18 @@ describe('interactive-runner', () => {
       expect(args).not.toContain('--model');
     });
 
+    test('includes --add-dir for group CLAUDE.md', () => {
+      const args = buildSpawnArgs({ continueSession: false, extraFlags: [], groupDir: '/home/user/groups/otto' });
+      const idx = args.indexOf('--add-dir');
+      expect(idx).toBeGreaterThan(-1);
+      expect(args[idx + 1]).toBe('/home/user/groups/otto');
+    });
+
+    test('omits --add-dir when groupDir not provided', () => {
+      const args = buildSpawnArgs({ continueSession: false, extraFlags: [] });
+      expect(args).not.toContain('--add-dir');
+    });
+
     test('includes extra flags', () => {
       const args = buildSpawnArgs({ continueSession: false, extraFlags: ['--max-turns', '5'] });
       expect(args).toContain('--max-turns');

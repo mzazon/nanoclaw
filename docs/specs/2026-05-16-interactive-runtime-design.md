@@ -460,7 +460,7 @@ A2A routing currently depends on agent-runner MCP tools. For interactive groups 
 
 | Package | Where | Purpose |
 |---------|-------|---------|
-| `node-pty` | Host (Node) | PTY allocation for CC spawn |
+| `script` (POSIX) | Host (Node) | PTY allocation via `script -qfc` (Linux) / `script -q` (macOS). No native dep — avoids `node-pty` supply-chain approval gate. |
 | `@modelcontextprotocol/sdk` | Bridge (Bun) | MCP server framework |
 | `bun:sqlite` | Bridge (Bun) | Session DB access (no new dep) |
 

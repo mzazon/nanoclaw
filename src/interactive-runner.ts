@@ -62,10 +62,7 @@ export function buildMcpJson(bridgeServerPath: string): string {
 
 export function resolveClaudeBin(): string {
   const home = process.env.HOME || os.homedir();
-  const candidates = [
-    path.join(home, '.local', 'bin', 'claude'),
-    path.join(home, '.npm-global', 'bin', 'claude'),
-  ];
+  const candidates = [path.join(home, '.local', 'bin', 'claude'), path.join(home, '.npm-global', 'bin', 'claude')];
   for (const c of candidates) {
     if (fs.existsSync(c)) return c;
   }
@@ -76,8 +73,15 @@ export function buildSpawnArgs(opts: {
   model?: string;
   continueSession: boolean;
   extraFlags: string[];
+  groupDir?: string;
 }): string[] {
-  const args: string[] = ['--dangerously-load-development-channels', 'server:nanoclaw-bridge', '--permission-mode', 'default'];
+  const args: string[] = [
+    '--dangerously-load-development-channels',
+    'server:nanoclaw-bridge',
+    '--permission-mode',
+    'default',
+  ];
+  if (opts.groupDir) args.push('--add-dir', opts.groupDir);
   if (opts.continueSession) args.push('--continue');
   if (opts.model) args.push('--model', opts.model);
   args.push(...opts.extraFlags);
@@ -125,6 +129,7 @@ export async function spawnInteractiveSession(
     model: containerConfig.model,
     continueSession: hasPriorSession,
     extraFlags,
+    groupDir,
   });
 
   const ptyBuffer = { data: '' };
