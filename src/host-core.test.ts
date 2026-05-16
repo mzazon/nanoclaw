@@ -275,6 +275,20 @@ describe('session manager', () => {
     expect(s2.id).toBe(s1.id);
   });
 
+  it('agent-shared creates session with null messaging_group_id', () => {
+    const { session } = resolveSession('ag-1', 'mg-1', null, 'agent-shared');
+    expect(session.messaging_group_id).toBeNull();
+  });
+
+  it('agent-shared reuses single session across messaging groups', () => {
+    const { session: s1, created: c1 } = resolveSession('ag-1', 'mg-1', null, 'agent-shared');
+    expect(c1).toBe(true);
+
+    const { session: s2, created: c2 } = resolveSession('ag-1', 'mg-2', null, 'agent-shared');
+    expect(c2).toBe(false);
+    expect(s2.id).toBe(s1.id);
+  });
+
   it('should write message to inbound DB', () => {
     const { session } = resolveSession('ag-1', 'mg-1', null, 'shared');
 

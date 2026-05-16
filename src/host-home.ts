@@ -15,6 +15,7 @@ import os from 'os';
 import { DATA_DIR } from './config.js';
 import type { ContainerConfig } from './container-config.js';
 import { log } from './log.js';
+import { syncSkillSymlinks } from './skill-symlinks.js';
 
 /**
  * Compose a synthetic HOME for a host-agent group. Returns the path.
@@ -53,11 +54,10 @@ export function composeHostHome(agentGroupId: string, config: ContainerConfig): 
     log.debug('Host plugins symlinked', { plugins: config.hostPlugins });
   }
 
-  // Symlink host home subdirectories that scripts reference via $HOME/...
-  // This lets scripts run unchanged — ~/vault, ~/home-infra, etc. resolve correctly.
   const realHome = os.homedir();
-  const homeSymlinks = ['vault', 'home-infra', 'litellm-stack', '.ssh'];
-  for (const name of homeSymlinks) {
+  const DEFAULT_SYMLINKS = ['vault', 'home-infra', 'litellm-stack', '.ssh'];
+  const symlinks = config.hostSymlinks && config.hostSymlinks.length > 0 ? config.hostSymlinks : DEFAULT_SYMLINKS;
+  for (const name of symlinks) {
     const target = path.join(realHome, name);
     const link = path.join(homeDir, name);
     if (!fs.existsSync(target)) continue;
@@ -66,40 +66,9 @@ export function composeHostHome(agentGroupId: string, config: ContainerConfig): 
     }
   }
 
-  // Symlink skills from container/skills/ into the synthetic .claude/skills/
-  // Mirrors syncSkillSymlinks() but uses host paths instead of /app/skills/
   const projectRoot = process.cwd();
   const sharedSkillsDir = path.join(projectRoot, 'container', 'skills');
-  const skillsDir = path.join(claudeDir, 'skills');
-  fs.mkdirSync(skillsDir, { recursive: true });
-
-  const desired = config.skills === 'all'
-    ? (fs.existsSync(sharedSkillsDir) ? fs.readdirSync(sharedSkillsDir).filter(e => {
-        try { return fs.statSync(path.join(sharedSkillsDir, e)).isDirectory(); } catch { return false; }
-      }) : [])
-    : config.skills;
-
-  const desiredSet = new Set(desired);
-
-  // Remove stale symlinks
-  for (const entry of fs.readdirSync(skillsDir)) {
-    const entryPath = path.join(skillsDir, entry);
-    try {
-      if (fs.lstatSync(entryPath).isSymbolicLink() && !desiredSet.has(entry)) {
-        fs.unlinkSync(entryPath);
-      }
-    } catch { /* skip */ }
-  }
-
-  // Create symlinks for desired skills (host paths, not container paths)
-  for (const skill of desired) {
-    const linkPath = path.join(skillsDir, skill);
-    const target = path.join(sharedSkillsDir, skill);
-    if (!fs.existsSync(target)) continue;
-    try { fs.lstatSync(linkPath); } catch {
-      fs.symlinkSync(target, linkPath);
-    }
-  }
+  syncSkillSymlinks(path.join(claudeDir, 'skills'), config, (s) => path.join(sharedSkillsDir, s));
 
   return homeDir;
 }

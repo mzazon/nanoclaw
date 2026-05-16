@@ -160,6 +160,9 @@ export function pauseTypingRefreshAfterDelivery(sessionId: string): void {
   const entry = typingRefreshers.get(sessionId);
   if (!entry) return;
   entry.pausedUntil = Date.now() + POST_DELIVERY_PAUSE_MS;
+  // Remove reaction immediately — the response is already on screen.
+  // If the agent keeps working, the next un-paused tick re-adds it.
+  removeTypingReaction(entry);
 }
 
 export function stopTypingRefresh(sessionId: string): void {

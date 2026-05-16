@@ -116,7 +116,7 @@ export function resolveSession(
   const session: Session = {
     id,
     agent_group_id: agentGroupId,
-    messaging_group_id: messagingGroupId,
+    messaging_group_id: sessionMode === 'agent-shared' ? null : messagingGroupId,
     thread_id: lookupThreadId,
     agent_provider: null,
     status: 'active',

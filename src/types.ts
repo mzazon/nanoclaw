@@ -28,6 +28,7 @@ export interface ContainerConfigRow {
   runtime: string; // 'docker' | 'host' — LOCAL-010
   host_home: number; // 0 | 1 — LOCAL-010
   host_plugins: string; // JSON: string[] — LOCAL-010
+  host_symlinks: string; // JSON: string[] — LOCAL-010
   updated_at: string;
 }
 

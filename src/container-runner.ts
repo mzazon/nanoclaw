@@ -5,7 +5,6 @@
  */
 import { ChildProcess, execSync, spawn } from 'child_process';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 
 import { OneCLI } from '@onecli-sh/sdk';
@@ -22,13 +21,14 @@ import {
 } from './config.js';
 import { materializeContainerJson } from './container-config.js';
 import { getContainerConfig } from './db/container-configs.js';
-import { updateContainerConfigScalars, updateContainerConfigJson } from './db/container-configs.js';
+import { updateContainerConfigScalars } from './db/container-configs.js';
 import { CONTAINER_RUNTIME_BIN, hostGatewayArgs, readonlyMountArgs, stopContainer } from './container-runtime.js';
 import { composeGroupClaudeMd } from './claude-md-compose.js';
-import { composeHostHome } from './host-home.js';
 import { getAgentGroup } from './db/agent-groups.js';
+import { syncSkillSymlinks } from './skill-symlinks.js';
 import { getDb, hasTable } from './db/connection.js';
 import { initGroupFilesystem } from './group-init.js';
+import { spawnHostProcess, cleanupHostOrphans } from './host-runner.js';
 import { stopTypingRefresh } from './modules/typing/index.js';
 import { log } from './log.js';
 import { validateAdditionalMounts } from './modules/mount-security/index.js';
@@ -49,20 +49,19 @@ import {
 } from './session-manager.js';
 import type { AgentGroup, Session } from './types.js';
 
+export { cleanupHostOrphans };
+
 const onecli = new OneCLI({ url: ONECLI_URL, apiKey: ONECLI_API_KEY });
 
-// LOCAL-010: cached bun binary path (systemd has a stripped PATH)
-let _bunBin: string | undefined;
-function resolveBunBin(): string {
-  if (_bunBin) return _bunBin;
-  const home = process.env.HOME || os.homedir();
-  const candidate = path.join(home, '.bun', 'bin', 'bun');
-  _bunBin = fs.existsSync(candidate) ? candidate : 'bun';
-  return _bunBin;
+interface ActiveEntry {
+  process: ChildProcess;
+  containerName: string;
+  isHostProcess: boolean;
+  pidFile?: string;
 }
 
 /** Active containers tracked by session ID. */
-const activeContainers = new Map<string, { process: ChildProcess; containerName: string; isHostProcess: boolean }>();
+const activeContainers = new Map<string, ActiveEntry>();
 
 /** Snapshot of active container entries for the dashboard pusher. */
 export function getActiveContainerEntries(): Array<{ sessionId: string; containerName: string }> {
@@ -146,9 +145,18 @@ async function spawnContainer(session: Session): Promise<void> {
   // and buildContainerArgs so we don't re-read.
   const containerConfig = materializeContainerJson(agentGroup.id);
 
-  // LOCAL-010: dispatch to host-agent spawn when runtime is 'host'
+  // LOCAL-010: dispatch to host-agent spawn
   if (containerConfig.runtime === 'host') {
-    return spawnHostProcess(session, agentGroup, containerConfig);
+    const result = await spawnHostProcess(session, agentGroup, containerConfig);
+    activeContainers.set(session.id, {
+      process: result.child,
+      containerName: result.name,
+      isHostProcess: true,
+      pidFile: result.pidFile,
+    });
+    markContainerRunning(session.id);
+    attachProcessLifecycle(result.child, session.id, agentGroup.folder, result.pidFile);
+    return;
   }
 
   // Resolve the effective provider + any host-side contribution it declares
@@ -183,136 +191,37 @@ async function spawnContainer(session: Session): Promise<void> {
 
   activeContainers.set(session.id, { process: container, containerName, isHostProcess: false });
   markContainerRunning(session.id);
-
-  // Log stderr
-  container.stderr?.on('data', (data) => {
-    for (const line of data.toString().trim().split('\n')) {
-      if (line) log.debug(line, { container: agentGroup.folder });
-    }
-  });
-
-  // stdout is unused in v2 (all IO is via session DB)
-  container.stdout?.on('data', () => {});
-
-  // No host-side idle timeout. Stale/stuck detection is driven by the host
-  // sweep reading heartbeat mtime + processing_ack claim age + container_state
-  // (see src/host-sweep.ts). This avoids killing long-running legitimate work
-  // on a wall-clock timer.
-
-  container.on('close', (code) => {
-    activeContainers.delete(session.id);
-    markContainerStopped(session.id);
-    stopTypingRefresh(session.id);
-    log.info('Container exited', { sessionId: session.id, code, containerName });
-  });
-
-  container.on('error', (err) => {
-    activeContainers.delete(session.id);
-    markContainerStopped(session.id);
-    stopTypingRefresh(session.id);
-    log.error('Container spawn error', { sessionId: session.id, err });
-  });
+  attachProcessLifecycle(container, session.id, agentGroup.folder);
 }
 
-// LOCAL-010: Host-agent spawn — runs the agent-runner directly on the host.
-async function spawnHostProcess(
-  session: Session,
-  agentGroup: AgentGroup,
-  containerConfig: import('./container-config.js').ContainerConfig,
-): Promise<void> {
-  const projectRoot = process.cwd();
-  const sessDir = sessionDir(agentGroup.id, session.id);
-  const groupDir = path.resolve(GROUPS_DIR, agentGroup.folder);
-  const claudeDir = path.join(DATA_DIR, 'v2-sessions', agentGroup.id, '.claude-shared');
-
-  initGroupFilesystem(agentGroup);
-  syncSkillSymlinks(claudeDir, containerConfig);
-  composeGroupClaudeMd(agentGroup);
-
-  const processName = `host-${agentGroup.folder}-${Date.now()}`;
-
-  const home = containerConfig.hostHome
-    ? process.env.HOME || os.homedir()
-    : composeHostHome(agentGroup.id, containerConfig);
-
-  log.info('Spawning host-agent process', { sessionId: session.id, agentGroup: agentGroup.name, processName, home });
-
-  fs.rmSync(heartbeatPath(agentGroup.id, session.id), { force: true });
-
-  // OneCLI: ensure agent + get proxy env for API auth via the SDK
-  // (not the CLI binary, which needs its own auth config).
-  const agentIdentifier = agentGroup.id;
-  await onecli.ensureAgent({ name: agentGroup.name, identifier: agentIdentifier });
-
-  let onecliEnv: Record<string, string> = {};
-  try {
-    const cc = await onecli.getContainerConfig(agentIdentifier);
-    onecliEnv = { ...cc.env };
-    // host.docker.internal only resolves inside Docker — replace with the
-    // actual Docker bridge IP for host-mode processes.
-    for (const key of Object.keys(onecliEnv)) {
-      if (typeof onecliEnv[key] === 'string') {
-        onecliEnv[key] = onecliEnv[key].replace(/host\.docker\.internal/g, '172.17.0.1');
-      }
-    }
-    if (cc.caCertificate) {
-      const certPath = path.join(DATA_DIR, '.host-home', 'onecli-ca.crt');
-      fs.mkdirSync(path.dirname(certPath), { recursive: true });
-      fs.writeFileSync(certPath, cc.caCertificate);
-      onecliEnv.NODE_EXTRA_CA_CERTS = certPath;
-    }
-  } catch (err) {
-    log.warn('OneCLI getContainerConfig failed — host-agent will lack API auth', { err });
-  }
-
-
-
-  const child = spawn(
-    resolveBunBin(),
-    ['run', path.join(projectRoot, 'container', 'agent-runner', 'src', 'index.ts')],
-    {
-      cwd: sessDir,
-      env: {
-        ...process.env,
-        ...onecliEnv,
-        HOME: home,
-        NANOCLAW_HOST_MODE: 'true',
-        NANOCLAW_WORKSPACE: sessDir,
-        NANOCLAW_AGENT_DIR: groupDir,
-        NANOCLAW_EXTRA_DIR: path.join(groupDir, '.host-extra'),
-        NANOCLAW_GLOBAL_DIR: path.join(GROUPS_DIR, 'global'),
-        NANOCLAW_SKILLS_DIR: path.join(projectRoot, 'container', 'skills'),
-        NANOCLAW_SHARED_CLAUDE_MD: path.join(projectRoot, 'container', 'CLAUDE.md'),
-        TZ: TIMEZONE,
-        NO_PROXY: 'localhost,127.0.0.1',
-        no_proxy: 'localhost,127.0.0.1',
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    },
-  );
-
-  activeContainers.set(session.id, { process: child, containerName: processName, isHostProcess: true });
-  markContainerRunning(session.id);
-
+/**
+ * Shared lifecycle setup for both Docker and host-agent processes.
+ * Wires stderr logging, stdout drain, close/error cleanup.
+ */
+function attachProcessLifecycle(child: ChildProcess, sessionId: string, groupFolder: string, pidFile?: string): void {
   child.stderr?.on('data', (data) => {
     for (const line of data.toString().trim().split('\n')) {
-      if (line) log.debug(line, { container: agentGroup.folder });
+      if (line) log.debug(line, { container: groupFolder });
     }
   });
-  child.stdout?.on('data', () => {});
+  child.stdout?.resume();
 
   child.on('close', (code) => {
-    activeContainers.delete(session.id);
-    markContainerStopped(session.id);
-    stopTypingRefresh(session.id);
-    log.info('Host-agent exited', { sessionId: session.id, code, processName });
+    const entry = activeContainers.get(sessionId);
+    activeContainers.delete(sessionId);
+    markContainerStopped(sessionId);
+    stopTypingRefresh(sessionId);
+    if (pidFile) fs.rmSync(pidFile, { force: true });
+    log.info('Process exited', { sessionId, code, containerName: entry?.containerName, isHost: entry?.isHostProcess });
   });
 
   child.on('error', (err) => {
-    activeContainers.delete(session.id);
-    markContainerStopped(session.id);
-    stopTypingRefresh(session.id);
-    log.error('Host-agent spawn error', { sessionId: session.id, err });
+    const entry = activeContainers.get(sessionId);
+    activeContainers.delete(sessionId);
+    markContainerStopped(sessionId);
+    stopTypingRefresh(sessionId);
+    if (pidFile) fs.rmSync(pidFile, { force: true });
+    log.error('Process spawn error', { sessionId, err, containerName: entry?.containerName, isHost: entry?.isHostProcess });
   });
 }
 
@@ -326,7 +235,6 @@ export function killContainer(sessionId: string, reason: string, onExit?: () => 
   }
 
   log.info('Killing container', { sessionId, reason, containerName: entry.containerName });
-  // LOCAL-010: host-agent processes use SIGTERM directly
   if (entry.isHostProcess) {
     entry.process.kill('SIGTERM');
     return;
@@ -382,11 +290,12 @@ function buildMounts(
   // Per-group filesystem state lives forever after first creation. Init is
   // idempotent: it only writes paths that don't already exist, so this call
   // is a no-op for groups that have spawned before.
+  // Also called by spawnHostProcess in host-runner.ts — both paths need this.
   initGroupFilesystem(agentGroup);
 
   // Sync skill symlinks based on container.json selection before mounting.
   const claudeDir = path.join(DATA_DIR, 'v2-sessions', agentGroup.id, '.claude-shared');
-  syncSkillSymlinks(claudeDir, containerConfig);
+  syncSkillSymlinks(path.join(claudeDir, 'skills'), containerConfig, (s) => `/app/skills/${s}`);
 
   // Compose CLAUDE.md fresh every spawn from the shared base, enabled skill
   // fragments, and MCP server instructions. See `claude-md-compose.ts`.
@@ -464,68 +373,6 @@ function buildMounts(
   }
 
   return mounts;
-}
-
-/**
- * Sync skill symlinks in .claude-shared/skills/ to match the container.json
- * selection. Each symlink points to a container path (/app/skills/<name>)
- * so it's dangling on the host but valid inside the container.
- */
-function syncSkillSymlinks(claudeDir: string, containerConfig: import('./container-config.js').ContainerConfig): void {
-  const skillsDir = path.join(claudeDir, 'skills');
-  if (!fs.existsSync(skillsDir)) {
-    fs.mkdirSync(skillsDir, { recursive: true });
-  }
-
-  // Determine desired skill set
-  const projectRoot = process.cwd();
-  const sharedSkillsDir = path.join(projectRoot, 'container', 'skills');
-  let desired: string[];
-  if (containerConfig.skills === 'all') {
-    // Recompute from shared dir — newly-added upstream skills appear automatically
-    desired = fs.existsSync(sharedSkillsDir)
-      ? fs.readdirSync(sharedSkillsDir).filter((e) => {
-          try {
-            return fs.statSync(path.join(sharedSkillsDir, e)).isDirectory();
-          } catch {
-            return false;
-          }
-        })
-      : [];
-  } else {
-    desired = containerConfig.skills;
-  }
-
-  const desiredSet = new Set(desired);
-
-  // Remove symlinks not in the desired set
-  for (const entry of fs.readdirSync(skillsDir)) {
-    const entryPath = path.join(skillsDir, entry);
-    let isSymlink = false;
-    try {
-      isSymlink = fs.lstatSync(entryPath).isSymbolicLink();
-    } catch {
-      continue;
-    }
-    if (isSymlink && !desiredSet.has(entry)) {
-      fs.unlinkSync(entryPath);
-    }
-  }
-
-  // Create symlinks for desired skills (container path targets)
-  for (const skill of desired) {
-    const linkPath = path.join(skillsDir, skill);
-    let exists = false;
-    try {
-      fs.lstatSync(linkPath);
-      exists = true;
-    } catch {
-      /* missing */
-    }
-    if (!exists) {
-      fs.symlinkSync(`/app/skills/${skill}`, linkPath);
-    }
-  }
 }
 
 async function buildContainerArgs(

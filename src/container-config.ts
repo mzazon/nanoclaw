@@ -46,6 +46,7 @@ export interface ContainerConfig {
   runtime?: string; // LOCAL-010
   hostHome?: boolean; // LOCAL-010
   hostPlugins?: string[]; // LOCAL-010
+  hostSymlinks?: string[]; // LOCAL-010
 }
 
 /** Build a `ContainerConfig` from a DB row + agent group identity. */
@@ -69,6 +70,7 @@ export function configFromDb(row: ContainerConfigRow, group: AgentGroup): Contai
     runtime: row.runtime ?? 'docker',
     hostHome: row.host_home === 1,
     hostPlugins: JSON.parse(row.host_plugins) as string[],
+    hostSymlinks: JSON.parse(row.host_symlinks) as string[],
   };
 }
 

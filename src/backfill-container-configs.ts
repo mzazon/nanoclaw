@@ -68,6 +68,7 @@ export function backfillContainerConfigs(): void {
       runtime: 'docker',
       host_home: 0,
       host_plugins: '[]',
+      host_symlinks: '[]',
       updated_at: new Date().toISOString(),
     };
 
