@@ -38,6 +38,9 @@ groups/*
 # Skills system (local per-installation state)
 .nanoclaw/
 
+# Container skills with private infra details (IPs, credentials, hostnames)
+container/skills/infra-health/
+
 agents-sdk-docs
 
 # Private docs — session handoffs, design specs, and plans belong in the vault, not the public repo
