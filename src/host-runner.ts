@@ -210,7 +210,7 @@ function isOurProcess(pid: number): boolean {
   if (process.platform !== 'linux') return true;
   try {
     const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf-8');
-    return cmdline.includes('agent-runner') || cmdline.includes('claude');
+    return cmdline.includes('agent-runner') || cmdline.includes('nanoclaw-bridge');
   } catch {
     return true;
   }

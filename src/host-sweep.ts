@@ -213,7 +213,9 @@ async function sweepSession(session: Session): Promise<void> {
     }
 
     // 3. Running-container SLA: absolute ceiling + per-claim stuck rules.
-    if (alive && outDb) {
+    // Interactive sessions are handled by the guard above — skip the
+    // standard SLA which would issue competing kill decisions.
+    if (alive && outDb && !interactiveEntry) {
       enforceRunningContainerSla(inDb, outDb, session, agentGroup.id);
     }
 

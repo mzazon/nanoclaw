@@ -104,6 +104,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
           to: args.to as string | undefined,
           text: args.text as string | undefined,
           filename: args.filename as string | undefined,
+          thread_id: args.thread_id as string | undefined,
         },
         currentInReplyTo,
       );
@@ -125,14 +126,41 @@ if (import.meta.main) {
       }
       const ids = messages.map((m) => m.id);
       markProcessing(SESSION_DIR, ids);
-      for (const msg of messages) {
-        let text: string;
+
+      function parseMsg(msg: typeof messages[0]): { text: string; user: string } {
         try {
-          const parsed = JSON.parse(msg.content);
-          text = parsed.text ?? msg.content;
+          const p = JSON.parse(msg.content);
+          return { text: p.text ?? msg.content, user: p.sender_handle ?? p.senderHandle ?? 'user' };
         } catch {
-          text = msg.content;
+          return { text: msg.content, user: 'user' };
         }
+      }
+
+      // Batch context: older messages prepended as context, only the
+      // last (triggering) message sets currentInReplyTo for reply routing.
+      if (messages.length > 1) {
+        const context = messages.slice(0, -1).map((m) => {
+          const { text, user } = parseMsg(m);
+          return `[${user} at ${m.timestamp}]: ${text}`;
+        });
+        const last = messages[messages.length - 1];
+        const { text, user } = parseMsg(last);
+        currentInReplyTo = last.id;
+        mcp.notification({
+          method: 'notifications/claude/channel',
+          params: {
+            content: `[Earlier messages]\n${context.join('\n')}\n\n[Latest]\n${text}`,
+            meta: {
+              chat_id: last.platform_id ?? AGENT_GROUP_ID ?? 'unknown',
+              message_id: last.id,
+              user,
+              ts: last.timestamp,
+            },
+          },
+        });
+      } else {
+        const msg = messages[0];
+        const { text, user } = parseMsg(msg);
         currentInReplyTo = msg.id;
         mcp.notification({
           method: 'notifications/claude/channel',
@@ -141,14 +169,7 @@ if (import.meta.main) {
             meta: {
               chat_id: msg.platform_id ?? AGENT_GROUP_ID ?? 'unknown',
               message_id: msg.id,
-              user: (() => {
-                try {
-                  const p = JSON.parse(msg.content);
-                  return p.sender_handle ?? p.senderHandle ?? 'user';
-                } catch {
-                  return 'user';
-                }
-              })(),
+              user,
               ts: msg.timestamp,
             },
           },
@@ -161,14 +182,21 @@ if (import.meta.main) {
     }
   }
 
-  const pollTimer = setInterval(poll, POLL_INTERVAL_MS);
-  pollTimer.unref();
+  let pollTimer: ReturnType<typeof setTimeout>;
+  function schedulePoll(): void {
+    pollTimer = setTimeout(() => {
+      poll();
+      if (!shuttingDown) schedulePoll();
+    }, POLL_INTERVAL_MS);
+    pollTimer.unref();
+  }
+  schedulePoll();
 
   let shuttingDown = false;
   function shutdown(): void {
     if (shuttingDown) return;
     shuttingDown = true;
-    clearInterval(pollTimer);
+    clearTimeout(pollTimer);
     process.stderr.write('nanoclaw-bridge: shutting down\n');
     process.exit(0);
   }

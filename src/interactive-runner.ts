@@ -11,7 +11,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-import { DATA_DIR, GROUPS_DIR, TIMEZONE } from './config.js';
+import { GROUPS_DIR, TIMEZONE } from './config.js';
 import type { ContainerConfig } from './container-config.js';
 import { composeGroupClaudeMd } from './claude-md-compose.js';
 import { initGroupFilesystem } from './group-init.js';
@@ -119,22 +119,28 @@ export async function spawnInteractiveSession(
   });
 
   const claudeBin = resolveClaudeBin();
-  const hasPriorSession = fs.existsSync(path.join(sessDir, '.claude'));
+  // Session resume via --continue is deferred: CC stores sessions in
+  // ~/.claude/projects/<cwd-hash>/, not in the CWD itself. Detecting
+  // prior sessions requires hashing the CWD and scanning that directory.
+  // For v1, every spawn starts fresh. The guard's kill-respawn path
+  // does not currently resume context.
   const extraFlags: string[] = [];
-  const flagsStr = (containerConfig as unknown as Record<string, unknown>).interactive_flags as string | undefined;
-  if (flagsStr) {
-    extraFlags.push(...flagsStr.split(/\s+/).filter(Boolean));
+  if (containerConfig.interactiveFlags) {
+    extraFlags.push(...containerConfig.interactiveFlags.split(/\s+/).filter(Boolean));
   }
   const claudeArgs = buildSpawnArgs({
     model: containerConfig.model,
-    continueSession: hasPriorSession,
+    continueSession: false,
     extraFlags,
     groupDir,
   });
 
   const ptyBuffer = { data: '' };
 
-  const claudeCmd = [claudeBin, ...claudeArgs].join(' ');
+  function shellEscape(s: string): string {
+    return "'" + s.replace(/'/g, "'\\''") + "'";
+  }
+  const claudeCmd = [claudeBin, ...claudeArgs].map(shellEscape).join(' ');
   const isLinux = process.platform === 'linux';
   const scriptArgs = isLinux ? ['-qfc', claudeCmd, '/dev/null'] : ['-q', '/dev/null', claudeBin, ...claudeArgs];
 

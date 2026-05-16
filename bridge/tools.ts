@@ -84,7 +84,7 @@ export function handleReply(
 export function handleSendFile(
   sessionDir: string,
   heartbeatPath: string,
-  args: { path: string; to?: string; text?: string; filename?: string },
+  args: { path: string; to?: string; text?: string; filename?: string; thread_id?: string },
   currentInReplyTo: string | null,
 ): ToolResult {
   if (!args.path) return err('path is required');
@@ -103,7 +103,7 @@ export function handleSendFile(
     kind: 'chat',
     platform_id: routing.platform_id,
     channel_type: routing.channel_type,
-    thread_id: routing.thread_id,
+    thread_id: args.thread_id ?? routing.thread_id,
     content: JSON.stringify({ text: args.text ?? '', files: [filename] }),
   });
   touchHeartbeat(heartbeatPath);

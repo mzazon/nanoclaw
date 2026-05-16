@@ -39,9 +39,7 @@ export interface DestinationEntry {
 }
 
 function openInbound(sessionDir: string): Database {
-  const db = new Database(`${sessionDir}/inbound.db`, { readonly: true });
-  db.exec('PRAGMA journal_mode=DELETE');
-  return db;
+  return new Database(`${sessionDir}/inbound.db`, { readonly: true });
 }
 
 function openOutbound(sessionDir: string): Database {
@@ -61,7 +59,6 @@ function hasOnWakeColumn(db: Database): boolean {
 }
 
 export function getPendingMessages(sessionDir: string, isFirstPoll: boolean): MessageInRow[] {
-  _hasOnWake = null;
   const inbound = openInbound(sessionDir);
   const outbound = openOutbound(sessionDir);
   try {
