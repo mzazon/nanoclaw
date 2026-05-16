@@ -232,7 +232,7 @@ async function spawnHostProcess(
   const processName = `host-${agentGroup.folder}-${Date.now()}`;
 
   const home = containerConfig.hostHome
-    ? (process.env.HOME || os.homedir())
+    ? process.env.HOME || os.homedir()
     : composeHostHome(agentGroup.id, containerConfig);
 
   log.info('Spawning host-agent process', { sessionId: session.id, agentGroup: agentGroup.name, processName, home });
@@ -247,8 +247,14 @@ async function spawnHostProcess(
   let onecliEnv: Record<string, string> = {};
   try {
     const cc = await onecli.getContainerConfig(agentIdentifier);
-    onecliEnv = cc.env;
-    // Write CA cert to a persistent path so the agent can use it
+    onecliEnv = { ...cc.env };
+    // host.docker.internal only resolves inside Docker — replace with the
+    // actual Docker bridge IP for host-mode processes.
+    for (const key of Object.keys(onecliEnv)) {
+      if (typeof onecliEnv[key] === 'string') {
+        onecliEnv[key] = onecliEnv[key].replace(/host\.docker\.internal/g, '172.17.0.1');
+      }
+    }
     if (cc.caCertificate) {
       const certPath = path.join(DATA_DIR, '.host-home', 'onecli-ca.crt');
       fs.mkdirSync(path.dirname(certPath), { recursive: true });
@@ -259,25 +265,31 @@ async function spawnHostProcess(
     log.warn('OneCLI getContainerConfig failed — host-agent will lack API auth', { err });
   }
 
-  const child = spawn(resolveBunBin(), ['run', path.join(projectRoot, 'container', 'agent-runner', 'src', 'index.ts')], {
-    cwd: sessDir,
-    env: {
-      ...process.env,
-      ...onecliEnv,
-      HOME: home,
-      NANOCLAW_HOST_MODE: 'true',
-      NANOCLAW_WORKSPACE: sessDir,
-      NANOCLAW_AGENT_DIR: groupDir,
-      NANOCLAW_EXTRA_DIR: path.join(groupDir, '.host-extra'),
-      NANOCLAW_GLOBAL_DIR: path.join(GROUPS_DIR, 'global'),
-      NANOCLAW_SKILLS_DIR: path.join(projectRoot, 'container', 'skills'),
-      NANOCLAW_SHARED_CLAUDE_MD: path.join(projectRoot, 'container', 'CLAUDE.md'),
-      TZ: TIMEZONE,
-      NO_PROXY: 'localhost,127.0.0.1',
-      no_proxy: 'localhost,127.0.0.1',
+
+
+  const child = spawn(
+    resolveBunBin(),
+    ['run', path.join(projectRoot, 'container', 'agent-runner', 'src', 'index.ts')],
+    {
+      cwd: sessDir,
+      env: {
+        ...process.env,
+        ...onecliEnv,
+        HOME: home,
+        NANOCLAW_HOST_MODE: 'true',
+        NANOCLAW_WORKSPACE: sessDir,
+        NANOCLAW_AGENT_DIR: groupDir,
+        NANOCLAW_EXTRA_DIR: path.join(groupDir, '.host-extra'),
+        NANOCLAW_GLOBAL_DIR: path.join(GROUPS_DIR, 'global'),
+        NANOCLAW_SKILLS_DIR: path.join(projectRoot, 'container', 'skills'),
+        NANOCLAW_SHARED_CLAUDE_MD: path.join(projectRoot, 'container', 'CLAUDE.md'),
+        TZ: TIMEZONE,
+        NO_PROXY: 'localhost,127.0.0.1',
+        no_proxy: 'localhost,127.0.0.1',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  );
 
   activeContainers.set(session.id, { process: child, containerName: processName, isHostProcess: true });
   markContainerRunning(session.id);
