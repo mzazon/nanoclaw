@@ -47,7 +47,6 @@ export interface ContainerConfig {
   hostHome?: boolean; // LOCAL-010
   hostPlugins?: string[]; // LOCAL-010
   hostSymlinks?: string[]; // LOCAL-010
-  interactiveFlags?: string;
 }
 
 /** Build a `ContainerConfig` from a DB row + agent group identity. */

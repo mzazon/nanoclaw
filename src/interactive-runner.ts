@@ -124,14 +124,12 @@ export async function spawnInteractiveSession(
   // prior sessions requires hashing the CWD and scanning that directory.
   // For v1, every spawn starts fresh. The guard's kill-respawn path
   // does not currently resume context.
-  const extraFlags: string[] = [];
-  if (containerConfig.interactiveFlags) {
-    extraFlags.push(...containerConfig.interactiveFlags.split(/\s+/).filter(Boolean));
-  }
+  // interactiveFlags: future — needs DB column + migration. For now,
+  // extra CLI flags are not supported. Add via ncl config when wired.
   const claudeArgs = buildSpawnArgs({
     model: containerConfig.model,
     continueSession: false,
-    extraFlags,
+    extraFlags: [],
     groupDir,
   });
 
