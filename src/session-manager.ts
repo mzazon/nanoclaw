@@ -171,6 +171,19 @@ export function writeSessionRouting(agentGroupId: string, sessionId: string): vo
   }
 
   const db = openInboundDb(agentGroupId, sessionId);
+
+  // Agent-shared sessions have no messaging_group_id — fall back to the
+  // most recent inbound message's channel info so tool-vis and other
+  // routing-dependent features still work.
+  if (!channelType || !platformId) {
+    try {
+      const row = db
+        .prepare('SELECT channel_type, platform_id, thread_id FROM messages_in WHERE channel_type IS NOT NULL AND channel_type != \'\' ORDER BY seq DESC LIMIT 1')
+        .get() as { channel_type?: string; platform_id?: string; thread_id?: string } | undefined;
+      if (row?.channel_type) channelType = row.channel_type;
+      if (row?.platform_id) platformId = row.platform_id;
+    } catch { /* table may not exist */ }
+  }
   try {
     upsertSessionRouting(db, {
       channel_type: channelType,

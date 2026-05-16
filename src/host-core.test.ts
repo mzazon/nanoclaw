@@ -977,9 +977,7 @@ describe('agent-to-agent routing', () => {
     expect(discordA2a).toHaveLength(0);
   });
 
-  it('BUG: A2A-only session gets null session_routing (#2332)', async () => {
-    // Researcher only has an agent-shared session (no channel wiring).
-    // writeSessionRouting writes nulls because messaging_group_id is null.
+  it('agent-shared session routing falls back to latest inbound message (#2332)', async () => {
     const { routeAgentMessage } = await import('./modules/agent-to-agent/agent-route.js');
 
     const { session: paSession } = resolveSession('ag-pa', 'mg-slack', null, 'shared');
@@ -1003,10 +1001,10 @@ describe('agent-to-agent routing', () => {
       | undefined;
     rDb.close();
 
-    // BUG: session_routing is all null — researcher has no default routing
+    // Falls back to the a2a inbound message's channel info
     expect(routing).toBeDefined();
-    expect(routing!.channel_type).toBeNull();
-    expect(routing!.platform_id).toBeNull();
+    expect(routing!.channel_type).toBe('agent');
+    expect(routing!.platform_id).toBe('ag-pa');
   });
 });
 
