@@ -78,7 +78,7 @@ export function getPendingMessages(sessionDir: string, isFirstPoll: boolean): Me
         (r) => r.message_id,
       ),
     );
-    return pending.filter((m) => !ackedIds.has(m.id)).reverse();
+    return pending.filter((m) => !ackedIds.has(m.id) && m.kind !== 'system').reverse();
   } finally {
     inbound.close();
     outbound.close();

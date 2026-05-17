@@ -4,9 +4,15 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { getPendingMessages, markProcessing, markCompleted, touchHeartbeat } from './db.ts';
 import { handleReply, handleSendFile, buildInstructions } from './tools.ts';
+import {
+  handleScheduleTask, handleListTasks, handleCancelTask,
+  handleUpdateTask, handlePauseTask, handleResumeTask,
+  SCHEDULING_TOOLS,
+} from './tools-scheduling.ts';
+import { handleNcl, NCL_TOOL } from './tools-ncl.ts';
 import { join } from 'path';
 
-const SESSION_DIR = process.env.NANOCLAW_SESSION_DIR;
+const SESSION_DIR = process.env.NANOCLAW_SESSION_DIR!;
 const AGENT_GROUP_ID = process.env.NANOCLAW_AGENT_GROUP_ID;
 const ASSISTANT_NAME = process.env.NANOCLAW_ASSISTANT_NAME;
 
@@ -75,6 +81,8 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['path'],
       },
     },
+    ...SCHEDULING_TOOLS,
+    NCL_TOOL,
   ],
 }));
 
@@ -108,6 +116,20 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
         },
         currentInReplyTo,
       );
+    case 'schedule_task':
+      return handleScheduleTask(SESSION_DIR, args);
+    case 'list_tasks':
+      return handleListTasks(SESSION_DIR, args);
+    case 'cancel_task':
+      return handleCancelTask(SESSION_DIR, args);
+    case 'update_task':
+      return handleUpdateTask(SESSION_DIR, args);
+    case 'pause_task':
+      return handlePauseTask(SESSION_DIR, args);
+    case 'resume_task':
+      return handleResumeTask(SESSION_DIR, args);
+    case 'ncl':
+      return handleNcl(SESSION_DIR, args);
     default:
       return { content: [{ type: 'text', text: `unknown tool: ${req.params.name}` }], isError: true };
   }

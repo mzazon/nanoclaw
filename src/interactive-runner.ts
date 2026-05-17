@@ -127,16 +127,9 @@ export async function spawnInteractiveSession(
   });
 
   const claudeBin = resolveClaudeBin();
-  // Session resume via --continue is deferred: CC stores sessions in
-  // ~/.claude/projects/<cwd-hash>/, not in the CWD itself. Detecting
-  // prior sessions requires hashing the CWD and scanning that directory.
-  // For v1, every spawn starts fresh. The guard's kill-respawn path
-  // does not currently resume context.
-  // interactiveFlags: future — needs DB column + migration. For now,
-  // extra CLI flags are not supported. Add via ncl config when wired.
   const claudeArgs = buildSpawnArgs({
     model: containerConfig.model,
-    continueSession: false,
+    continueSession: true,
     extraFlags: [],
     groupDir,
     mcpConfigPath: mcpJsonPath,

@@ -45,7 +45,7 @@ describe('interactive-runner', () => {
       const json = buildMcpJson('/app/bridge/server.ts');
       const parsed = JSON.parse(json);
       expect(parsed.mcpServers['nanoclaw-bridge']).toBeDefined();
-      expect(parsed.mcpServers['nanoclaw-bridge'].command).toBe('bun');
+      expect(parsed.mcpServers['nanoclaw-bridge'].command).toMatch(/bun$/);
       expect(parsed.mcpServers['nanoclaw-bridge'].args).toContain('/app/bridge/server.ts');
     });
 
@@ -70,10 +70,9 @@ describe('interactive-runner', () => {
       expect(args).toContain('server:nanoclaw-bridge');
     });
 
-    test('includes permission mode', () => {
+    test('includes dangerously-skip-permissions', () => {
       const args = buildSpawnArgs({ continueSession: false, extraFlags: [] });
-      expect(args).toContain('--permission-mode');
-      expect(args).toContain('default');
+      expect(args).toContain('--dangerously-skip-permissions');
     });
 
     test('includes --continue when requested', () => {

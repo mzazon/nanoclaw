@@ -175,4 +175,19 @@ describe('bridge/db', () => {
     expect(r.platform_id).toBe('C123');
     expect(r.thread_id).toBeNull();
   });
+
+  test('getPendingMessages filters system messages', async () => {
+    inDb.prepare(
+      `INSERT INTO messages_in (id, seq, kind, content, trigger) VALUES ('sys-1', 4, 'system', '{"type":"cli_response","requestId":"cli-123"}', 1)`,
+    ).run();
+    inDb.prepare(
+      `INSERT INTO messages_in (id, seq, kind, content, trigger) VALUES ('task-1', 6, 'task', '{"prompt":"do stuff"}', 1)`,
+    ).run();
+    const { getPendingMessages } = await import('./db.ts');
+    const msgs = getPendingMessages(dir, false);
+    const kinds = msgs.map((m) => m.kind);
+    expect(kinds).not.toContain('system');
+    expect(kinds).toContain('chat');
+    expect(kinds).toContain('task');
+  });
 });

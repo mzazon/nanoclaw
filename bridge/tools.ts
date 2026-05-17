@@ -116,6 +116,8 @@ export function buildInstructions(sessionDir: string, assistantName?: string): s
     'Reply using the reply tool — your transcript output does not reach the sender.',
     'Use send_message with a "to" parameter for cross-destination routing.',
     'Use send_file to attach files to messages.',
+    'You can schedule, list, cancel, pause, resume, and update tasks using the scheduling tools.',
+    'Use the ncl tool to manage your agent group, list sessions, and query destinations.',
   ];
   if (assistantName) {
     sections.push('', `Your name is **${assistantName}**.`);

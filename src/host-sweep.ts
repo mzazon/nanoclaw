@@ -31,6 +31,7 @@ import fs from 'fs';
 
 import { getActiveSessions } from './db/sessions.js';
 import { getAgentGroup } from './db/agent-groups.js';
+import { getContainerConfig } from './db/container-configs.js';
 import {
   countDueMessages,
   deleteOrphanProcessingClaims,
@@ -42,6 +43,7 @@ import {
   syncProcessingAcks,
   type ContainerState,
 } from './db/session-db.js';
+import { applyHostPreTaskScripts } from './host-task-script.js';
 import { log } from './log.js';
 import { openInboundDb, openOutboundDb, openOutboundDbRw, inboundDbPath, heartbeatPath } from './session-manager.js';
 import { isContainerRunning, killContainer, wakeContainer, getInteractiveEntry } from './container-runner.js';
@@ -179,10 +181,26 @@ async function sweepSession(session: Session): Promise<void> {
     // and the wake would never fire.
     const dueCount = countDueMessages(inDb);
     if (dueCount > 0 && !isContainerRunning(session.id)) {
-      log.info('Waking container for due messages', { sessionId: session.id, count: dueCount });
-      // wakeContainer never throws — transient spawn failures (OneCLI down,
-      // etc.) return false and leave messages pending for the next tick.
-      await wakeContainer(session);
+      const configRow = getContainerConfig(agentGroup.id);
+      if (configRow?.runtime === 'interactive') {
+        const dueRows = inDb
+          .prepare(
+            `SELECT * FROM messages_in
+             WHERE status = 'pending' AND trigger = 1
+               AND (process_after IS NULL OR datetime(process_after) <= datetime('now'))`,
+          )
+          .all() as any[];
+        const remaining = await applyHostPreTaskScripts(inDb, dueRows);
+        if (remaining.length > 0) {
+          log.info('Waking container for due messages', { sessionId: session.id, count: remaining.length });
+          await wakeContainer(session);
+        }
+      } else {
+        log.info('Waking container for due messages', { sessionId: session.id, count: dueCount });
+        // wakeContainer never throws — transient spawn failures (OneCLI down,
+        // etc.) return false and leave messages pending for the next tick.
+        await wakeContainer(session);
+      }
     }
 
     const alive = isContainerRunning(session.id);
@@ -195,9 +213,10 @@ async function sweepSession(session: Session): Promise<void> {
       const hbMtime = heartbeatMtimeMs(agentGroup.id, session.id);
       // No heartbeat yet = bridge hasn't started polling. Use process spawn
       // time as baseline so the guard doesn't treat it as infinitely stale.
-      const hbStaleMs = hbMtime === 0
-        ? Date.now() - (interactiveEntry.process.pid ? interactiveEntry.spawnedAt ?? Date.now() : Date.now())
-        : Date.now() - hbMtime;
+      const hbStaleMs =
+        hbMtime === 0
+          ? Date.now() - (interactiveEntry.process.pid ? (interactiveEntry.spawnedAt ?? Date.now()) : Date.now())
+          : Date.now() - hbMtime;
       const action = decideAction({
         bufferSignal: signal,
         heartbeatStaleMs: hbStaleMs,

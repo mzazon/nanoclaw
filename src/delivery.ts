@@ -22,13 +22,7 @@ import {
 } from './db/session-db.js';
 import { log } from './log.js';
 import { normalizeOptions } from './channels/ask-question.js';
-import {
-  clearOutbox,
-  openInboundDb,
-  openOutboundDb,
-  readOutboxFiles,
-  writeSessionMessage,
-} from './session-manager.js';
+import { clearOutbox, openInboundDb, openOutboundDb, readOutboxFiles, writeSessionMessage } from './session-manager.js';
 import { pauseTypingRefreshAfterDelivery, setTypingAdapter } from './modules/typing/index.js';
 import type { OutboundFile } from './channels/adapter.js';
 import type { Session } from './types.js';

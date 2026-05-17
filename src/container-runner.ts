@@ -91,7 +91,9 @@ export function isContainerRunning(sessionId: string): boolean {
   return activeContainers.has(sessionId);
 }
 
-export function getInteractiveEntry(sessionId: string): { ptyBuffer: { data: string }; process: ChildProcess; spawnedAt?: number } | null {
+export function getInteractiveEntry(
+  sessionId: string,
+): { ptyBuffer: { data: string }; process: ChildProcess; spawnedAt?: number } | null {
   const entry = activeContainers.get(sessionId);
   if (!entry?.ptyBuffer) return null;
   return { ptyBuffer: entry.ptyBuffer, process: entry.process, spawnedAt: entry.spawnedAt };
