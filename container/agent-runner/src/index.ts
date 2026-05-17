@@ -74,9 +74,12 @@ async function main(): Promise<void> {
   const mcpServerPath = path.join(__dirname, 'mcp-tools', 'index.ts');
 
   // Build MCP servers config: nanoclaw built-in + any from container.json
+  // Use process.argv[0] for the bun path — in host-mode, bare "bun" may not
+  // be in CC's PATH when it spawns the MCP server subprocess.
+  const bunBin = process.argv[0] || 'bun';
   const mcpServers: Record<string, { command: string; args: string[]; env: Record<string, string> }> = {
     nanoclaw: {
-      command: 'bun',
+      command: bunBin,
       args: ['run', mcpServerPath],
       env: {},
     },
