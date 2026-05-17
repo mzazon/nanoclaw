@@ -59,6 +59,7 @@ interface ActiveEntry {
   isHostProcess: boolean;
   pidFile?: string;
   ptyBuffer?: { data: string };
+  spawnedAt?: number;
 }
 
 /** Active containers tracked by session ID. */
@@ -90,10 +91,10 @@ export function isContainerRunning(sessionId: string): boolean {
   return activeContainers.has(sessionId);
 }
 
-export function getInteractiveEntry(sessionId: string): { ptyBuffer: { data: string }; process: ChildProcess } | null {
+export function getInteractiveEntry(sessionId: string): { ptyBuffer: { data: string }; process: ChildProcess; spawnedAt?: number } | null {
   const entry = activeContainers.get(sessionId);
   if (!entry?.ptyBuffer) return null;
-  return { ptyBuffer: entry.ptyBuffer, process: entry.process };
+  return { ptyBuffer: entry.ptyBuffer, process: entry.process, spawnedAt: entry.spawnedAt };
 }
 
 /**
@@ -176,6 +177,7 @@ async function spawnContainer(session: Session): Promise<void> {
       isHostProcess: true,
       pidFile: result.pidFile,
       ptyBuffer: result.ptyBuffer,
+      spawnedAt: Date.now(),
     });
     markContainerRunning(session.id);
     attachProcessLifecycle(result.child, session.id, agentGroup.folder, result.pidFile);

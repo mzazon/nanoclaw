@@ -22,7 +22,13 @@ import {
 } from './db/session-db.js';
 import { log } from './log.js';
 import { normalizeOptions } from './channels/ask-question.js';
-import { clearOutbox, openInboundDb, openOutboundDb, readOutboxFiles } from './session-manager.js';
+import {
+  clearOutbox,
+  openInboundDb,
+  openOutboundDb,
+  readOutboxFiles,
+  writeSessionMessage,
+} from './session-manager.js';
 import { pauseTypingRefreshAfterDelivery, setTypingAdapter } from './modules/typing/index.js';
 import type { OutboundFile } from './channels/adapter.js';
 import type { Session } from './types.js';
@@ -226,6 +232,7 @@ async function drainSession(session: Session): Promise<void> {
           });
           markDeliveryFailed(inDb, msg.id);
           deliveryAttempts.delete(msg.id);
+          notifyDeliveryFailure(session, msg.id);
         } else {
           log.warn('Message delivery failed, will retry', {
             messageId: msg.id,
@@ -243,6 +250,22 @@ async function drainSession(session: Session): Promise<void> {
   }
 }
 
+function notifyDeliveryFailure(session: Session, messageId: string): void {
+  try {
+    writeSessionMessage(session.agent_group_id, session.id, {
+      id: `drop-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      kind: 'chat',
+      timestamp: new Date().toISOString(),
+      content: JSON.stringify({
+        text: `[system] Your message (${messageId}) could not be delivered after ${MAX_DELIVERY_ATTEMPTS} attempts and was lost. The user did not see your response. Please re-send or inform the user.`,
+      }),
+      trigger: 1,
+    });
+  } catch (err) {
+    log.error('Failed to write delivery-failure notification to inbound', { messageId, err });
+  }
+}
+
 async function deliverMessage(
   msg: {
     id: string;
@@ -257,7 +280,9 @@ async function deliverMessage(
   inDb: Database.Database,
 ): Promise<string | undefined> {
   if (!deliveryAdapter) {
-    log.warn('No delivery adapter configured, dropping message', { id: msg.id });
+    log.error('No delivery adapter configured, dropping message — user will not see this response', {
+      id: msg.id,
+    });
     return;
   }
 

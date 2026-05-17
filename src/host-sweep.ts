@@ -192,7 +192,12 @@ async function sweepSession(session: Session): Promise<void> {
     if (alive && interactiveEntry) {
       const { scanPtyBuffer, decideAction, executeAction } = await import('./interactive-guard.js');
       const signal = scanPtyBuffer(interactiveEntry.ptyBuffer.data);
-      const hbStaleMs = Date.now() - heartbeatMtimeMs(agentGroup.id, session.id);
+      const hbMtime = heartbeatMtimeMs(agentGroup.id, session.id);
+      // No heartbeat yet = bridge hasn't started polling. Use process spawn
+      // time as baseline so the guard doesn't treat it as infinitely stale.
+      const hbStaleMs = hbMtime === 0
+        ? Date.now() - (interactiveEntry.process.pid ? interactiveEntry.spawnedAt ?? Date.now() : Date.now())
+        : Date.now() - hbMtime;
       const action = decideAction({
         bufferSignal: signal,
         heartbeatStaleMs: hbStaleMs,

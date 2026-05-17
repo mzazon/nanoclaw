@@ -45,12 +45,19 @@ export function buildInteractiveEnv(opts: {
   };
 }
 
+export function resolveBunBin(): string {
+  const home = process.env.HOME || os.homedir();
+  const candidate = path.join(home, '.bun', 'bin', 'bun');
+  if (fs.existsSync(candidate)) return candidate;
+  return 'bun';
+}
+
 export function buildMcpJson(bridgeServerPath: string): string {
   return JSON.stringify(
     {
       mcpServers: {
         'nanoclaw-bridge': {
-          command: 'bun',
+          command: resolveBunBin(),
           args: ['run', bridgeServerPath],
         },
       },
@@ -74,13 +81,14 @@ export function buildSpawnArgs(opts: {
   continueSession: boolean;
   extraFlags: string[];
   groupDir?: string;
+  mcpConfigPath?: string;
 }): string[] {
   const args: string[] = [
+    '--dangerously-skip-permissions',
     '--dangerously-load-development-channels',
     'server:nanoclaw-bridge',
-    '--permission-mode',
-    'default',
   ];
+  if (opts.mcpConfigPath) args.push('--mcp-config', opts.mcpConfigPath);
   if (opts.groupDir) args.push('--add-dir', opts.groupDir);
   if (opts.continueSession) args.push('--continue');
   if (opts.model) args.push('--model', opts.model);
@@ -131,6 +139,7 @@ export async function spawnInteractiveSession(
     continueSession: false,
     extraFlags: [],
     groupDir,
+    mcpConfigPath: mcpJsonPath,
   });
 
   const ptyBuffer = { data: '' };
@@ -140,7 +149,8 @@ export async function spawnInteractiveSession(
   }
   const claudeCmd = [claudeBin, ...claudeArgs].map(shellEscape).join(' ');
   const isLinux = process.platform === 'linux';
-  const scriptArgs = isLinux ? ['-qfc', claudeCmd, '/dev/null'] : ['-q', '/dev/null', claudeBin, ...claudeArgs];
+  const typescriptFile = path.join(sessDir, '.pty-output');
+  const scriptArgs = isLinux ? ['-qfc', claudeCmd, typescriptFile] : ['-q', typescriptFile, claudeBin, ...claudeArgs];
 
   const child = spawn('script', scriptArgs, {
     cwd: sessDir,
@@ -157,6 +167,32 @@ export async function spawnInteractiveSession(
     const str = data.toString();
     ptyBuffer.data = (ptyBuffer.data + str).slice(-PTY_BUFFER_SIZE);
   });
+
+  // Poll the typescript file for PTY output (script doesn't pipe to stdout
+  // when its own stdout is not a TTY).
+  let lastSize = 0;
+  const ptyPollInterval = setInterval(() => {
+    try {
+      const stat = fs.statSync(typescriptFile);
+      if (stat.size > lastSize) {
+        const fd = fs.openSync(typescriptFile, 'r');
+        const buf = Buffer.alloc(Math.min(stat.size - lastSize, PTY_BUFFER_SIZE));
+        fs.readSync(fd, buf, 0, buf.length, lastSize);
+        fs.closeSync(fd);
+        lastSize = stat.size;
+        const str = buf.toString();
+        ptyBuffer.data = (ptyBuffer.data + str).slice(-PTY_BUFFER_SIZE);
+      }
+    } catch {}
+  }, 2000);
+
+  child.on('exit', () => clearInterval(ptyPollInterval));
+
+  // Auto-accept the development channels confirmation prompt.
+  // CC always shows this when --dangerously-load-development-channels is used.
+  setTimeout(() => {
+    if (!child.killed) child.stdin?.write('\r');
+  }, 5000);
 
   const pidFile = path.join(sessDir, '.host-pid');
   fs.writeFileSync(pidFile, String(child.pid));

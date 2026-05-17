@@ -480,7 +480,13 @@ async function processQuery(
         resetToolVisStream();
         markCompleted(initialBatchIds);
         if (event.text) {
-          const { hasUnwrapped } = dispatchResultText(event.text, routing);
+          const { hasUnwrapped, droppedDestinations } = dispatchResultText(event.text, routing);
+          if (droppedDestinations.length > 0) {
+            sendDropNotice(
+              `Message delivery failed — unknown destination(s): ${droppedDestinations.join(', ')}. The response was lost.`,
+              routing,
+            );
+          }
           if (hasUnwrapped && !unwrappedNudged) {
             unwrappedNudged = true;
             const destinations = getAllDestinations();
@@ -490,6 +496,11 @@ async function processQuery(
                 `All output must be wrapped: use <message to="name"> for content to send, or <internal> for scratchpad. ` +
                 `Your destinations: ${names}. ` +
                 `Please re-send your response with the correct wrapping.</system>`,
+            );
+          } else if (hasUnwrapped && unwrappedNudged) {
+            sendDropNotice(
+              `Agent response was not delivered — it was not wrapped in message tags, and the retry also failed. Please re-send your last message.`,
+              routing,
             );
           }
         }
@@ -530,13 +541,17 @@ function handleEvent(event: ProviderEvent, _routing: RoutingContext): void {
  * The agent must always wrap output in <message to="name">...</message>
  * blocks, even with a single destination. Bare text is scratchpad only.
  */
-function dispatchResultText(text: string, routing: RoutingContext): { sent: number; hasUnwrapped: boolean } {
+function dispatchResultText(
+  text: string,
+  routing: RoutingContext,
+): { sent: number; hasUnwrapped: boolean; droppedDestinations: string[] } {
   const MESSAGE_RE = /<message\s+to="([^"]+)"\s*>([\s\S]*?)<\/message>/g;
 
   let match: RegExpExecArray | null;
   let sent = 0;
   let lastIndex = 0;
   const scratchpadParts: string[] = [];
+  const droppedDestinations: string[] = [];
 
   while ((match = MESSAGE_RE.exec(text)) !== null) {
     if (match.index > lastIndex) {
@@ -550,6 +565,7 @@ function dispatchResultText(text: string, routing: RoutingContext): { sent: numb
     if (!dest) {
       log(`Unknown destination in <message to="${toName}">, dropping block`);
       scratchpadParts.push(`[dropped: unknown destination "${toName}"] ${body}`);
+      droppedDestinations.push(toName);
       continue;
     }
     sendToDestination(dest, body, routing);
@@ -569,7 +585,22 @@ function dispatchResultText(text: string, routing: RoutingContext): { sent: numb
   if (hasUnwrapped) {
     log(`WARNING: agent output had no <message to="..."> blocks — nothing was sent`);
   }
-  return { sent, hasUnwrapped };
+  return { sent, hasUnwrapped, droppedDestinations };
+}
+
+function sendDropNotice(notice: string, routing: RoutingContext): void {
+  const sessionRouting = getSessionRouting();
+  if (!sessionRouting.platform_id) return;
+  log(`Sending drop notice: ${notice}`);
+  writeMessageOut({
+    id: generateId(),
+    in_reply_to: routing.inReplyTo,
+    kind: 'chat',
+    platform_id: sessionRouting.platform_id,
+    channel_type: sessionRouting.channel_type,
+    thread_id: sessionRouting.thread_id,
+    content: JSON.stringify({ text: `⚠️ ${notice}` }),
+  });
 }
 
 function sendToDestination(dest: DestinationEntry, body: string, routing: RoutingContext): void {
