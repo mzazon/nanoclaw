@@ -5,7 +5,8 @@
  *   - Reads processing_ack + container_state from outbound.db
  *   - Writes to inbound.db (host-owned) for status updates + recurrence
  *   - Uses heartbeat file mtime for liveness (never polls DB for it)
- *   - Never writes to outbound.db — preserves single-writer-per-file invariant
+ *   - Writes to outbound.db only to clear continuations before wake (container
+ *     is confirmed stopped, so the single-writer-per-file invariant holds)
  *
  * Stuck / idle detection (replaces the old IDLE_TIMEOUT setTimeout + 10-min
  * heartbeat threshold):
@@ -119,6 +120,54 @@ export function decideStuckAction(args: {
   return { action: 'ok' };
 }
 
+/**
+ * If any due message is a recurring task, clear the provider continuation so
+ * the container starts a fresh agent conversation. Safe to call only when
+ * the container is confirmed stopped (!isContainerRunning passed).
+ */
+function clearContinuationForRecurringTasks(
+  inDb: Database.Database,
+  agentGroupId: string,
+  sessionId: string,
+): void {
+  if (!hasDueRecurringTask(inDb)) return;
+
+  const outDb = openOutboundDbRw(agentGroupId, sessionId);
+  try {
+    clearContinuations(outDb, sessionId);
+  } finally {
+    outDb.close();
+  }
+}
+
+function hasDueRecurringTask(inDb: Database.Database): boolean {
+  return !!inDb
+    .prepare(
+      `SELECT 1 FROM messages_in
+       WHERE status = 'pending' AND trigger = 1 AND recurrence IS NOT NULL
+         AND (process_after IS NULL OR datetime(process_after) <= datetime('now'))
+       LIMIT 1`,
+    )
+    .get();
+}
+
+function clearContinuations(outDb: Database.Database, sessionId: string): number {
+  const result = outDb.prepare("DELETE FROM session_state WHERE key LIKE 'continuation:%'").run();
+  if (result.changes > 0) {
+    log.info('Cleared continuation for fresh recurring task start', { sessionId });
+  }
+  return result.changes;
+}
+
+export function _clearContinuationForRecurringTasksForTesting(
+  inDb: Database.Database,
+  outDb: Database.Database,
+  sessionId: string,
+): number {
+  if (!hasDueRecurringTask(inDb)) return 0;
+  return clearContinuations(outDb, sessionId);
+}
+
 let running = false;
 
 export function startHostSweep(): void {
@@ -181,6 +230,8 @@ async function sweepSession(session: Session): Promise<void> {
     // and the wake would never fire.
     const dueCount = countDueMessages(inDb);
     if (dueCount > 0 && !isContainerRunning(session.id)) {
+      clearContinuationForRecurringTasks(inDb, agentGroup.id, session.id);
+
       const configRow = getContainerConfig(agentGroup.id);
       if (configRow?.runtime === 'interactive') {
         const dueRows = inDb

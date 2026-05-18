@@ -10,6 +10,7 @@ import { deleteOrphanProcessingClaims, getProcessingClaims } from './db/session-
 import {
   ABSOLUTE_CEILING_MS,
   CLAIM_STUCK_MS,
+  _clearContinuationForRecurringTasksForTesting,
   _resetStuckProcessingRowsForTesting,
   decideStuckAction,
   parseSqliteUtc,
@@ -291,6 +292,105 @@ describe('resetStuckProcessingRows — orphan claim cleanup', () => {
     expect(getProcessingClaims(outDb)).toEqual([]);
     const row = inDb.prepare('SELECT tries FROM messages_in WHERE id = ?').get('m-2') as { tries: number };
     expect(row.tries).toBe(1); // not bumped, the skip path held
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Continuation clearing for recurring tasks
+// ─────────────────────────────────────────────────────────────────────────────
+
+function makeSessionDbsWithState(): { inDb: Database.Database; outDb: Database.Database } {
+  const { inDb, outDb } = makeSessionDbs();
+  outDb.exec(`
+    CREATE TABLE IF NOT EXISTS session_state (
+      key        TEXT PRIMARY KEY,
+      value      TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  return { inDb, outDb };
+}
+
+describe('clearContinuationForRecurringTasks', () => {
+  it('clears continuation when a due recurring task is pending', () => {
+    const { inDb, outDb } = makeSessionDbsWithState();
+    const ts = new Date().toISOString();
+
+    inDb.prepare(
+      `INSERT INTO messages_in (id, seq, kind, timestamp, status, trigger, recurrence, content)
+       VALUES ('task-1', 10, 'task', ?, 'pending', 1, '0 9 * * *', '{"prompt":"nightly"}')`,
+    ).run(ts);
+
+    outDb.prepare(
+      "INSERT INTO session_state (key, value, updated_at) VALUES ('continuation:claude', 'sess-abc', ?)",
+    ).run(ts);
+
+    const cleared = _clearContinuationForRecurringTasksForTesting(inDb, outDb, 'sess-test');
+
+    expect(cleared).toBe(1);
+    const remaining = outDb.prepare("SELECT * FROM session_state WHERE key LIKE 'continuation:%'").all();
+    expect(remaining).toHaveLength(0);
+  });
+
+  it('does not clear when no recurring tasks are pending', () => {
+    const { inDb, outDb } = makeSessionDbsWithState();
+    const ts = new Date().toISOString();
+
+    // Non-recurring task
+    inDb.prepare(
+      `INSERT INTO messages_in (id, seq, kind, timestamp, status, trigger, content)
+       VALUES ('task-1', 10, 'task', ?, 'pending', 1, '{"prompt":"one-shot"}')`,
+    ).run(ts);
+
+    outDb.prepare(
+      "INSERT INTO session_state (key, value, updated_at) VALUES ('continuation:claude', 'sess-abc', ?)",
+    ).run(ts);
+
+    const cleared = _clearContinuationForRecurringTasksForTesting(inDb, outDb, 'sess-test');
+
+    expect(cleared).toBe(0);
+    const remaining = outDb.prepare("SELECT * FROM session_state WHERE key LIKE 'continuation:%'").all();
+    expect(remaining).toHaveLength(1);
+  });
+
+  it('does not clear when recurring task is not yet due', () => {
+    const { inDb, outDb } = makeSessionDbsWithState();
+    const ts = new Date().toISOString();
+    const futureTs = new Date(Date.now() + 3600_000).toISOString();
+
+    inDb.prepare(
+      `INSERT INTO messages_in (id, seq, kind, timestamp, status, trigger, recurrence, process_after, content)
+       VALUES ('task-1', 10, 'task', ?, 'pending', 1, '0 9 * * *', ?, '{"prompt":"nightly"}')`,
+    ).run(ts, futureTs);
+
+    outDb.prepare(
+      "INSERT INTO session_state (key, value, updated_at) VALUES ('continuation:claude', 'sess-abc', ?)",
+    ).run(ts);
+
+    const cleared = _clearContinuationForRecurringTasksForTesting(inDb, outDb, 'sess-test');
+
+    expect(cleared).toBe(0);
+  });
+
+  it('clears all provider continuations (multi-provider)', () => {
+    const { inDb, outDb } = makeSessionDbsWithState();
+    const ts = new Date().toISOString();
+
+    inDb.prepare(
+      `INSERT INTO messages_in (id, seq, kind, timestamp, status, trigger, recurrence, content)
+       VALUES ('task-1', 10, 'task', ?, 'pending', 1, '0 9 * * *', '{"prompt":"nightly"}')`,
+    ).run(ts);
+
+    outDb.prepare(
+      "INSERT INTO session_state (key, value, updated_at) VALUES ('continuation:claude', 'sess-abc', ?)",
+    ).run(ts);
+    outDb.prepare(
+      "INSERT INTO session_state (key, value, updated_at) VALUES ('continuation:codex', 'sess-def', ?)",
+    ).run(ts);
+
+    const cleared = _clearContinuationForRecurringTasksForTesting(inDb, outDb, 'sess-test');
+
+    expect(cleared).toBe(2);
   });
 });
 
