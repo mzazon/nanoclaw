@@ -67,6 +67,8 @@ For ad-hoc queries from skills or scripts, use the in-tree wrapper rather than t
 | `src/container-runner.ts` | Spawns per-agent-group Docker containers with session DB + outbox mounts, OneCLI `ensureAgent` |
 | `src/interactive-runner.ts` | Spawns CC in interactive mode with channel plugin bridge (subscription billing) |
 | `src/interactive-guard.ts` | Sweep integration for interactive session health (rate limits, crashes, idle) |
+| `src/host-task-script.ts` | Host-side pre-task script runner for interactive sessions (zero LLM cost on suppress) |
+| `src/claude-md-compose.ts` | Composes group CLAUDE.md from shared base + fragments; host-path symlinks for non-Docker runtimes |
 | `src/container-runtime.ts` | Runtime selection (Docker vs Apple containers), orphan cleanup |
 | `src/modules/permissions/access.ts` | `canAccessAgentGroup` — owner / global admin / scoped admin / member resolution against `user_roles` + `agent_group_members` |
 | `src/modules/approvals/primitive.ts` | `pickApprover`, `pickApprovalDelivery`, `requestApproval`, approval-handler registry |
@@ -82,6 +84,9 @@ For ad-hoc queries from skills or scripts, use the in-tree wrapper rather than t
 | `src/providers/` | Host-side provider container-config (`claude` baked in; `opencode` etc. installed from the `providers` branch) |
 | `container/agent-runner/src/` | Agent-runner: poll loop, formatter, provider abstraction, MCP tools, destinations |
 | `bridge/server.ts` | Channel plugin MCP server — bridges session DBs to CC `claude/channel` contract for interactive runtime |
+| `bridge/tools-scheduling.ts` | 6 scheduling MCP tools for bridge (schedule/list/cancel/update/pause/resume) |
+| `bridge/tools-ncl.ts` | NCL MCP tool with async request/response correlation via session DBs |
+| `bridge/timezone.ts` | `parseZonedToUtc` for bridge package tree (separate from container/host copies) |
 | `container/skills/` | Container skills mounted into every agent session (`onecli-gateway`, `welcome`, `self-customize`, `agent-browser`, `slack-formatting`) |
 | `groups/<folder>/` | Per-agent-group filesystem (CLAUDE.md, skills, per-group `agent-runner-src/` overlay) |
 | `scripts/init-first-agent.ts` | Bootstrap the first DM-wired agent (used by `/init-first-agent` skill) |
