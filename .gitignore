@@ -52,5 +52,6 @@ agents-sdk-docs
 # Private docs — session handoffs, design specs, and plans belong in the vault, not the public repo
 docs/sessions/
 docs/plans/
+docs/specs/
 docs/superpowers/
 .superpowers/
