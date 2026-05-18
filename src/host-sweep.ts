@@ -205,6 +205,21 @@ async function sweepSession(session: Session): Promise<void> {
 
     const alive = isContainerRunning(session.id);
 
+    // 2a. Script gate for running interactive sessions. The bridge filters out
+    // script-gated tasks, so they sit pending until the sweep evaluates them.
+    if (alive && getContainerConfig(agentGroup.id)?.runtime === 'interactive') {
+      const scriptTasks = inDb
+        .prepare(
+          `SELECT * FROM messages_in
+           WHERE status = 'pending' AND trigger = 1 AND kind = 'task'
+             AND (process_after IS NULL OR datetime(process_after) <= datetime('now'))`,
+        )
+        .all() as any[];
+      if (scriptTasks.length > 0) {
+        await applyHostPreTaskScripts(inDb, scriptTasks);
+      }
+    }
+
     // 2b. Interactive session guard — check PTY buffer for rate-limit prompts.
     const interactiveEntry = getInteractiveEntry(session.id);
     if (alive && interactiveEntry) {

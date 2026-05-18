@@ -176,6 +176,20 @@ describe('bridge/db', () => {
     expect(r.thread_id).toBeNull();
   });
 
+  test('getPendingMessages filters task messages with script field', async () => {
+    inDb.prepare(
+      `INSERT INTO messages_in (id, seq, kind, content, trigger) VALUES ('task-scripted', 4, 'task', '{"prompt":"check stuff","script":"echo hello"}', 1)`,
+    ).run();
+    inDb.prepare(
+      `INSERT INTO messages_in (id, seq, kind, content, trigger) VALUES ('task-plain', 6, 'task', '{"prompt":"do stuff"}', 1)`,
+    ).run();
+    const { getPendingMessages } = await import('./db.ts');
+    const msgs = getPendingMessages(dir, false);
+    const ids = msgs.map((m) => m.id);
+    expect(ids).not.toContain('task-scripted');
+    expect(ids).toContain('task-plain');
+  });
+
   test('getPendingMessages filters system messages', async () => {
     inDb.prepare(
       `INSERT INTO messages_in (id, seq, kind, content, trigger) VALUES ('sys-1', 4, 'system', '{"type":"cli_response","requestId":"cli-123"}', 1)`,
