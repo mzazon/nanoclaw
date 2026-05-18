@@ -23,8 +23,8 @@ import { getContainerConfig } from './db/container-configs.js';
 import { log } from './log.js';
 import type { AgentGroup } from './types.js';
 
-// Symlink targets are container paths — dangling on host (hence the readlink
-// dance instead of existsSync), valid inside the container via RO mounts.
+// Container-path symlink targets — valid inside Docker via RO mounts,
+// dangling on host. Used only when runtime is 'docker' (or unset).
 const SHARED_CLAUDE_MD_CONTAINER_PATH = '/app/CLAUDE.md';
 const SHARED_SKILLS_CONTAINER_BASE = '/app/skills';
 const SHARED_MCP_TOOLS_CONTAINER_BASE = '/app/src/mcp-tools';
@@ -32,6 +32,10 @@ const SHARED_MCP_TOOLS_CONTAINER_BASE = '/app/src/mcp-tools';
 // Host-side source paths used to discover fragment sources at compose time.
 // Resolved at call time (process.cwd() = project root) so tests can swap cwd.
 const MCP_TOOLS_HOST_SUBPATH = path.join('container', 'agent-runner', 'src', 'mcp-tools');
+
+function isHostRuntime(runtime: string | undefined | null): boolean {
+  return runtime === 'interactive' || runtime === 'host';
+}
 
 const COMPOSED_HEADER = '<!-- Composed at spawn — do not edit. Edit CLAUDE.local.md for per-group content. -->';
 
@@ -46,31 +50,36 @@ export function composeGroupClaudeMd(group: AgentGroup): void {
     fs.mkdirSync(groupDir, { recursive: true });
   }
 
+  // Desired fragment set.
+  const configRow = getContainerConfig(group.id);
+  const hostMode = isHostRuntime(configRow?.runtime);
+  const projectRoot = process.cwd();
+
   const sharedLink = path.join(groupDir, '.claude-shared.md');
-  syncSymlink(sharedLink, SHARED_CLAUDE_MD_CONTAINER_PATH);
+  syncSymlink(
+    sharedLink,
+    hostMode ? path.join(projectRoot, 'container', 'CLAUDE.md') : SHARED_CLAUDE_MD_CONTAINER_PATH,
+  );
 
   const fragmentsDir = path.join(groupDir, '.claude-fragments');
   if (!fs.existsSync(fragmentsDir)) {
     fs.mkdirSync(fragmentsDir, { recursive: true });
   }
 
-  // Desired fragment set.
-  const configRow = getContainerConfig(group.id);
   const mcpServers: Record<string, McpServerConfig> = configRow
     ? (JSON.parse(configRow.mcp_servers) as Record<string, McpServerConfig>)
     : {};
   const desired = new Map<string, { type: 'symlink' | 'inline'; content: string }>();
 
   // Skill fragments — every skill that ships an `instructions.md`.
-  // TODO (shared-source refactor): respect `container.json` skill selection.
-  const skillsHostDir = path.join(process.cwd(), 'container', 'skills');
+  const skillsHostDir = path.join(projectRoot, 'container', 'skills');
   if (fs.existsSync(skillsHostDir)) {
     for (const skillName of fs.readdirSync(skillsHostDir)) {
       const hostFragment = path.join(skillsHostDir, skillName, 'instructions.md');
       if (fs.existsSync(hostFragment)) {
         desired.set(`skill-${skillName}.md`, {
           type: 'symlink',
-          content: `${SHARED_SKILLS_CONTAINER_BASE}/${skillName}/instructions.md`,
+          content: hostMode ? hostFragment : `${SHARED_SKILLS_CONTAINER_BASE}/${skillName}/instructions.md`,
         });
       }
     }
@@ -81,7 +90,7 @@ export function composeGroupClaudeMd(group: AgentGroup): void {
   // use that module's MCP tools (schedule_task, install_packages, etc.).
   // Skip cli.instructions.md when cli_scope is disabled.
   const cliDisabled = configRow?.cli_scope === 'disabled';
-  const mcpToolsHostDir = path.join(process.cwd(), MCP_TOOLS_HOST_SUBPATH);
+  const mcpToolsHostDir = path.join(projectRoot, MCP_TOOLS_HOST_SUBPATH);
   if (fs.existsSync(mcpToolsHostDir)) {
     for (const entry of fs.readdirSync(mcpToolsHostDir)) {
       const match = entry.match(/^(.+)\.instructions\.md$/);
@@ -90,7 +99,7 @@ export function composeGroupClaudeMd(group: AgentGroup): void {
       if (moduleName === 'cli' && cliDisabled) continue;
       desired.set(`module-${moduleName}.md`, {
         type: 'symlink',
-        content: `${SHARED_MCP_TOOLS_CONTAINER_BASE}/${entry}`,
+        content: hostMode ? path.join(mcpToolsHostDir, entry) : `${SHARED_MCP_TOOLS_CONTAINER_BASE}/${entry}`,
       });
     }
   }
