@@ -69,6 +69,7 @@ export function backfillContainerConfigs(): void {
       host_home: 0,
       host_plugins: '[]',
       host_symlinks: '[]',
+      fresh_context: null,
       updated_at: new Date().toISOString(),
     };
 

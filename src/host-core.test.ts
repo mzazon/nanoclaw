@@ -789,6 +789,44 @@ describe('writeSessionRouting', () => {
     expect(row!.thread_id).toBeNull();
   });
 
+  it('fallback skips agent-type messages when resolving routing', () => {
+    createAgentGroup({
+      id: 'ag-1',
+      name: 'Agent',
+      folder: 'agent',
+      agent_provider: null,
+      created_at: now(),
+    });
+
+    const { session } = resolveSession('ag-1', null, null, 'agent-shared');
+    initSessionFolder('ag-1', session.id);
+
+    const inDb = new Database(inboundDbPath('ag-1', session.id));
+    inDb
+      .prepare(
+        "INSERT INTO messages_in (id, seq, kind, timestamp, status, channel_type, platform_id, content) VALUES ('m1', 2, 'chat', ?, 'completed', 'slack', 'slack:C123', '{}')",
+      )
+      .run(now());
+    inDb
+      .prepare(
+        "INSERT INTO messages_in (id, seq, kind, timestamp, status, channel_type, platform_id, content) VALUES ('m2', 4, 'chat', ?, 'completed', 'agent', 'ag-1', '{}')",
+      )
+      .run(now());
+    inDb.close();
+
+    writeSessionRouting('ag-1', session.id);
+
+    const db = new Database(inboundDbPath('ag-1', session.id));
+    const row = db.prepare('SELECT channel_type, platform_id FROM session_routing WHERE id = 1').get() as
+      | { channel_type: string | null; platform_id: string | null }
+      | undefined;
+    db.close();
+
+    expect(row).toBeDefined();
+    expect(row!.channel_type).toBe('slack');
+    expect(row!.platform_id).toBe('slack:C123');
+  });
+
   it('includes thread_id from per-thread session', () => {
     createAgentGroup({
       id: 'ag-1',

@@ -179,7 +179,7 @@ export function writeSessionRouting(agentGroupId: string, sessionId: string): vo
     try {
       const row = db
         .prepare(
-          "SELECT channel_type, platform_id, thread_id FROM messages_in WHERE channel_type IS NOT NULL AND channel_type != '' ORDER BY seq DESC LIMIT 1",
+          "SELECT channel_type, platform_id, thread_id FROM messages_in WHERE channel_type IS NOT NULL AND channel_type != '' ORDER BY CASE WHEN channel_type = 'agent' THEN 1 ELSE 0 END, seq DESC LIMIT 1",
         )
         .get() as { channel_type?: string; platform_id?: string; thread_id?: string } | undefined;
       if (row?.channel_type) channelType = row.channel_type;

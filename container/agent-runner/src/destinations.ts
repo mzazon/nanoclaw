@@ -124,6 +124,10 @@ function buildDestinationsSection(): string {
   );
   lines.push('');
   lines.push(
+    '**Agent-to-agent results**: when another agent sends you results (e.g., a research report), deliver them to the *channel* where the original user request came from — not back to the agent, and not to a DM. The user expects to see the results in the same conversation they asked in.',
+  );
+  lines.push('');
+  lines.push(
     'To send a message mid-response (e.g., an acknowledgment before a long task), call the `send_message` MCP tool with the `to` parameter set to a destination name.',
   );
   return lines.join('\n');

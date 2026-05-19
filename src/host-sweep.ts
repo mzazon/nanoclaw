@@ -48,7 +48,11 @@ import { applyHostPreTaskScripts } from './host-task-script.js';
 import { log } from './log.js';
 import { openInboundDb, openOutboundDb, openOutboundDbRw, inboundDbPath, heartbeatPath } from './session-manager.js';
 import { isContainerRunning, killContainer, wakeContainer, getInteractiveEntry } from './container-runner.js';
-import type { Session } from './types.js';
+import type { ContainerConfigRow, Session } from './types.js';
+
+function parseFreshContext(config: ContainerConfigRow): string | null {
+  return config.fresh_context ?? null;
+}
 
 /**
  * SQLite TIMESTAMP columns store UTC without a timezone marker. Date.parse
@@ -125,11 +129,7 @@ export function decideStuckAction(args: {
  * the container starts a fresh agent conversation. Safe to call only when
  * the container is confirmed stopped (!isContainerRunning passed).
  */
-function clearContinuationForRecurringTasks(
-  inDb: Database.Database,
-  agentGroupId: string,
-  sessionId: string,
-): void {
+function clearContinuationForRecurringTasks(inDb: Database.Database, agentGroupId: string, sessionId: string): void {
   if (!hasDueRecurringTask(inDb)) return;
 
   const outDb = openOutboundDbRw(agentGroupId, sessionId);
@@ -151,10 +151,10 @@ function hasDueRecurringTask(inDb: Database.Database): boolean {
     .get();
 }
 
-function clearContinuations(outDb: Database.Database, sessionId: string): number {
+function clearContinuations(outDb: Database.Database, sessionId: string, reason?: string): number {
   const result = outDb.prepare("DELETE FROM session_state WHERE key LIKE 'continuation:%'").run();
   if (result.changes > 0) {
-    log.info('Cleared continuation for fresh recurring task start', { sessionId });
+    log.info('Cleared continuation for fresh start', { sessionId, reason: reason ?? 'recurring-task' });
   }
   return result.changes;
 }
@@ -166,6 +166,30 @@ export function _clearContinuationForRecurringTasksForTesting(
 ): number {
   if (!hasDueRecurringTask(inDb)) return 0;
   return clearContinuations(outDb, sessionId);
+}
+
+function clearContinuationIfFreshContext(
+  freshContext: string | null | undefined,
+  agentGroupId: string,
+  sessionId: string,
+): boolean {
+  if (freshContext !== 'always') return false;
+
+  const outDb = openOutboundDbRw(agentGroupId, sessionId);
+  try {
+    clearContinuations(outDb, sessionId, 'fresh-context-always');
+  } finally {
+    outDb.close();
+  }
+  return true;
+}
+
+export function _clearContinuationIfFreshContextForTesting(
+  outDb: Database.Database,
+  freshContext: string | null | undefined,
+): number {
+  if (freshContext !== 'always') return 0;
+  return clearContinuations(outDb, 'test-session', 'fresh-context-always');
 }
 
 let running = false;
@@ -230,9 +254,11 @@ async function sweepSession(session: Session): Promise<void> {
     // and the wake would never fire.
     const dueCount = countDueMessages(inDb);
     if (dueCount > 0 && !isContainerRunning(session.id)) {
-      clearContinuationForRecurringTasks(inDb, agentGroup.id, session.id);
-
       const configRow = getContainerConfig(agentGroup.id);
+      const freshContext = configRow ? parseFreshContext(configRow) : null;
+      if (!clearContinuationIfFreshContext(freshContext, agentGroup.id, session.id)) {
+        clearContinuationForRecurringTasks(inDb, agentGroup.id, session.id);
+      }
       if (configRow?.runtime === 'interactive') {
         const dueRows = inDb
           .prepare(

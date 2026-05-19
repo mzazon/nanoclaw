@@ -29,6 +29,7 @@ export interface ContainerConfigRow {
   host_home: number; // 0 | 1 — LOCAL-010
   host_plugins: string; // JSON: string[] — LOCAL-010
   host_symlinks: string; // JSON: string[] — LOCAL-010
+  fresh_context: string | null; // 'always' | null
   updated_at: string;
 }
 

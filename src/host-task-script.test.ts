@@ -89,7 +89,7 @@ describe('applyHostPreTaskScripts', () => {
     const c2 = JSON.stringify({ prompt: 'second', script: 'echo \'{"wakeAgent":true,"data":"b"}\'' });
     db.prepare("INSERT INTO messages_in (id, seq, kind, content) VALUES ('s1', 2, 'task', ?)").run(c1);
     db.prepare("INSERT INTO messages_in (id, seq, kind, content) VALUES ('s2', 4, 'task', ?)").run(c2);
-    const rows = db.prepare("SELECT * FROM messages_in ORDER BY seq").all() as any[];
+    const rows = db.prepare('SELECT * FROM messages_in ORDER BY seq').all() as any[];
 
     const result = await applyHostPreTaskScripts(db, rows);
     expect(result.length).toBe(2);

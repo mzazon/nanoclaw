@@ -11,6 +11,7 @@ const SCALAR_COLUMNS = new Set([
   'cli_scope',
   'runtime',
   'host_home',
+  'fresh_context',
 ]);
 const JSON_COLUMNS = new Set([
   'skills',
@@ -74,6 +75,7 @@ export function updateContainerConfigScalars(
       | 'cli_scope'
       | 'runtime'
       | 'host_home'
+      | 'fresh_context'
     >
   >,
 ): void {

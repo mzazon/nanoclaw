@@ -38,7 +38,9 @@ async function runScript(script: string, taskId: string): Promise<ScriptResult |
       [scriptPath],
       { timeout: SCRIPT_TIMEOUT_MS, maxBuffer: SCRIPT_MAX_BUFFER, env: process.env },
       (error, stdout, stderr) => {
-        try { fs.unlinkSync(scriptPath); } catch {}
+        try {
+          fs.unlinkSync(scriptPath);
+        } catch {}
 
         if (stderr) log.debug('host-task-script stderr', { taskId, stderr: stderr.slice(0, 500) });
 
