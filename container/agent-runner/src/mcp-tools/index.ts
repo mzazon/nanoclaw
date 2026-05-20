@@ -10,6 +10,7 @@ import './scheduling.js';
 import './interactive.js';
 import './agents.js';
 import './self-mod.js';
+import './request-approval.js';
 import './forum-thread.js';
 import { startMcpServer } from './server.js';
 

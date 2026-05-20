@@ -153,6 +153,8 @@ export interface RequestApprovalOptions {
   title: string;
   /** Card body shown to the admin. */
   question: string;
+  /** Custom button options. Defaults to Approve/Reject when omitted. */
+  options?: RawOption[];
 }
 
 /**
@@ -181,7 +183,8 @@ export async function requestApproval(opts: RequestApprovalOptions): Promise<voi
   }
 
   const approvalId = `appr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const normalizedOptions = normalizeOptions(APPROVAL_OPTIONS);
+  const effectiveOptions = opts.options ?? APPROVAL_OPTIONS;
+  const normalizedOptions = normalizeOptions(effectiveOptions);
   createPendingApproval({
     approval_id: approvalId,
     session_id: session.id,
@@ -206,7 +209,7 @@ export async function requestApproval(opts: RequestApprovalOptions): Promise<voi
           questionId: approvalId,
           title,
           question,
-          options: APPROVAL_OPTIONS,
+          options: effectiveOptions,
         }),
       );
     } catch (err) {

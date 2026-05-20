@@ -80,11 +80,24 @@ async function handleRegisteredApproval(
   // Approved — dispatch to the module that registered for this action.
   const handler = getApprovalHandler(approval.action);
   if (!handler) {
-    log.warn('No approval handler registered — row dropped', {
+    const payloadObj = JSON.parse(approval.payload);
+    writeSessionMessage(session.agent_group_id, session.id, {
+      id: `appr-task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      kind: 'task',
+      timestamp: new Date().toISOString(),
+      platformId: session.agent_group_id,
+      channelType: 'agent',
+      threadId: null,
+      content: JSON.stringify({
+        prompt: `Action '${approval.action}' approved by ${userId}. Execute the approved action using the payload below.`,
+        approvedPayload: payloadObj,
+      }),
+    });
+    log.info('Approval handled via default handler', {
       approvalId: approval.approval_id,
       action: approval.action,
+      userId,
     });
-    notify(`Your ${approval.action} was approved, but no handler is installed to apply it.`);
     deletePendingApproval(approval.approval_id);
     await wakeContainer(session);
     return;
