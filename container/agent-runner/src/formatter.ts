@@ -270,11 +270,25 @@ function formatAttachments(attachments: any[] | undefined): string {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+function repairJson(json: string): string {
+  return json.replace(/[\x00-\x1f]/g, (ch) => {
+    const code = ch.charCodeAt(0);
+    if (code === 0x0a) return '\\n';
+    if (code === 0x0d) return '\\r';
+    if (code === 0x09) return '\\t';
+    return `\\u${code.toString(16).padStart(4, '0')}`;
+  });
+}
+
 function parseContent(json: string): any {
   try {
     return JSON.parse(json);
   } catch {
-    return { text: json };
+    try {
+      return JSON.parse(repairJson(json));
+    } catch {
+      return { text: json };
+    }
   }
 }
 

@@ -22,7 +22,7 @@
  * if either module becomes genuinely optional (see REFACTOR_PLAN open q #3).
  */
 import { normalizeOptions, type RawOption } from '../../channels/ask-question.js';
-import { getMessagingGroup } from '../../db/messaging-groups.js';
+import { getMessagingGroup, getMessagingGroupsByAgentGroup } from '../../db/messaging-groups.js';
 import { createPendingApproval, getSession } from '../../db/sessions.js';
 import { getDeliveryAdapter } from '../../delivery.js';
 import { wakeContainer } from '../../container-runner.js';
@@ -196,12 +196,21 @@ export async function requestApproval(opts: RequestApprovalOptions): Promise<voi
     options_json: JSON.stringify(normalizedOptions),
   });
 
+  // Deliver to the agent's wired channel (so the approval card appears in the
+  // same channel the agent posts to, with full conversation context). Fall back
+  // to the approver's DM if no wired channel exists.
+  const wiredChannels = getMessagingGroupsByAgentGroup(session.agent_group_id);
+  const deliverTo =
+    wiredChannels.find((mg) => mg.channel_type === target.messagingGroup.channel_type) ??
+    wiredChannels[0] ??
+    target.messagingGroup;
+
   const adapter = getDeliveryAdapter();
   if (adapter) {
     try {
       await adapter.deliver(
-        target.messagingGroup.channel_type,
-        target.messagingGroup.platform_id,
+        deliverTo.channel_type,
+        deliverTo.platform_id,
         null,
         'chat-sdk',
         JSON.stringify({
@@ -219,5 +228,11 @@ export async function requestApproval(opts: RequestApprovalOptions): Promise<voi
     }
   }
 
-  log.info('Approval requested', { action, approvalId, agentName, approver: target.userId });
+  log.info('Approval requested', {
+    action,
+    approvalId,
+    agentName,
+    approver: target.userId,
+    deliveredTo: deliverTo.platform_id,
+  });
 }

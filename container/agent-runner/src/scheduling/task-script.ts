@@ -90,8 +90,19 @@ export async function applyPreTaskScripts(messages: MessageInRow[]): Promise<Tas
     try {
       content = JSON.parse(msg.content);
     } catch {
-      keep.push(msg);
-      continue;
+      try {
+        content = JSON.parse(msg.content.replace(/[\x00-\x1f]/g, (ch: string) => {
+          const code = ch.charCodeAt(0);
+          if (code === 0x0a) return '\\n';
+          if (code === 0x0d) return '\\r';
+          if (code === 0x09) return '\\t';
+          return `\\u${code.toString(16).padStart(4, '0')}`;
+        }));
+        log(`task ${msg.id}: repaired malformed JSON (literal control chars)`);
+      } catch {
+        keep.push(msg);
+        continue;
+      }
     }
 
     const script = typeof content.script === 'string' ? (content.script as string) : null;

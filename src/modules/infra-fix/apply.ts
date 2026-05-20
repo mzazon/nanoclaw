@@ -19,7 +19,7 @@ export const applyInfraFix: ApprovalHandler = async ({ session, payload, userId,
     threadId: null,
     content: JSON.stringify({
       prompt:
-        'An infra fix you proposed has been approved. Execute it, verify, and report the result to ops. See the approved payload below.',
+        'An infra fix you proposed has been approved by the admin. Execute the commands in the approved payload, verify the result, and report to default destination. This approved-fix task temporarily overrides the REMEDIATION RULE — you MAY run the specific commands listed in the payload.',
       approvedFix: {
         ...payload,
         approvedBy: userId,
@@ -32,5 +32,7 @@ export const applyInfraFix: ApprovalHandler = async ({ session, payload, userId,
     findingKey: payload.findingKey,
     userId,
   });
-  notify(`Fix approved for ${payload.findingKey || 'unknown finding'}. Executing.`);
+  notify(
+    `Fix approved for ${payload.findingKey || 'unknown finding'}. A task has been queued — the fix will execute on your next wake.`,
+  );
 };
