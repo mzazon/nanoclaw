@@ -4,7 +4,9 @@
  * don't have to mock the filesystem or the container runner.
  */
 import Database from 'better-sqlite3';
-import { describe, expect, it } from 'vitest';
+import fs from 'fs';
+import path from 'path';
+import { afterEach, beforeEach, describe, expect, it, test } from 'vitest';
 
 import { deleteOrphanProcessingClaims, getProcessingClaims } from './db/session-db.js';
 import {
@@ -505,5 +507,41 @@ describe('parseSqliteUtc', () => {
     // bare string returns different values depending on the host TZ.)
     const bare = '2026-04-20T12:00:00';
     expect(parseSqliteUtc(bare)).toBe(Date.parse(bare + 'Z'));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bridge marker handling — TOCTOU safety around the .cc-unresponsive read.
+// The marker file is written by the bridge (Task 7); the read side belongs to
+// the host sweep. Marker can be cleaned up by the bridge between our existsSync
+// and statSync calls, so we must use a single statSync + ENOENT catch instead
+// of stat-after-exists.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('host-sweep — bridge marker handling', () => {
+  const tmpDir = `/tmp/nanoclaw-sweep-test-${process.pid}`;
+
+  beforeEach(() => fs.mkdirSync(tmpDir, { recursive: true }));
+  afterEach(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
+
+  test('TOCTOU-safe stat survives marker removal between checks', () => {
+    const markerPath = path.join(tmpDir, '.cc-unresponsive');
+    fs.writeFileSync(markerPath, '{}');
+    fs.rmSync(markerPath);   // remove right before stat (simulates bridge cleanup race)
+    let crashed = false;
+    let stale = 0;
+    let exists = false;
+    try {
+      const stat = fs.statSync(markerPath);
+      exists = true;
+      stale = Date.now() - stat.mtimeMs;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        crashed = true;
+      }
+    }
+    expect(crashed).toBe(false);
+    expect(exists).toBe(false);
+    expect(stale).toBe(0);
   });
 });

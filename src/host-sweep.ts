@@ -29,10 +29,12 @@
  */
 import type Database from 'better-sqlite3';
 import fs from 'fs';
+import path from 'path';
 
-import { getActiveSessions } from './db/sessions.js';
+import { getActiveSessions, getSession } from './db/sessions.js';
 import { getAgentGroup } from './db/agent-groups.js';
 import { getContainerConfig } from './db/container-configs.js';
+import { getMessagingGroup } from './db/messaging-groups.js';
 import {
   countDueMessages,
   deleteOrphanProcessingClaims,
@@ -45,8 +47,18 @@ import {
   type ContainerState,
 } from './db/session-db.js';
 import { applyHostPreTaskScripts } from './host-task-script.js';
+import { getLatches } from './interactive-rate-limit.js';
+import type { RespawnFlags } from './interactive-runner.js';
 import { log } from './log.js';
-import { openInboundDb, openOutboundDb, openOutboundDbRw, inboundDbPath, heartbeatPath } from './session-manager.js';
+import {
+  openInboundDb,
+  openOutboundDb,
+  openOutboundDbRw,
+  inboundDbPath,
+  heartbeatPath,
+  sessionDir,
+  writeOutboundDirect,
+} from './session-manager.js';
 import { isContainerRunning, killContainer, wakeContainer, getInteractiveEntry } from './container-runner.js';
 import type { ContainerConfigRow, Session } from './types.js';
 
@@ -297,11 +309,16 @@ async function sweepSession(session: Session): Promise<void> {
       }
     }
 
-    // 2b. Interactive session guard — check PTY buffer for rate-limit prompts.
+    // 2b. Interactive session guard — scan PTY buffer for blocking modals.
     const interactiveEntry = getInteractiveEntry(session.id);
     if (alive && interactiveEntry) {
       const { scanPtyBuffer, decideAction, executeAction } = await import('./interactive-guard.js');
-      const signal = scanPtyBuffer(interactiveEntry.ptyBuffer.data);
+      const scan = scanPtyBuffer(interactiveEntry.ptyBuffer.data);
+      if (scan.signal) {
+        log.warn(
+          `Interactive guard: signal=${scan.signal} limitType=${scan.limitType ?? '-'} percent=${scan.percent ?? '-'} session=${session.id} buffer=${JSON.stringify(interactiveEntry.ptyBuffer.data.slice(-2000))}`,
+        );
+      }
       const hbMtime = heartbeatMtimeMs(agentGroup.id, session.id);
       // No heartbeat yet = bridge hasn't started polling. Use process spawn
       // time as baseline so the guard doesn't treat it as infinitely stale.
@@ -309,19 +326,95 @@ async function sweepSession(session: Session): Promise<void> {
         hbMtime === 0
           ? Date.now() - (interactiveEntry.process.pid ? (interactiveEntry.spawnedAt ?? Date.now()) : Date.now())
           : Date.now() - hbMtime;
+
+      // Read bridge unresponsiveness marker (TOCTOU-safe: stat can race with
+      // marker cleanup in the bridge; treat ENOENT as "no marker present").
+      const markerPath = path.join(sessionDir(agentGroup.id, session.id), '.cc-unresponsive');
+      let markerStaleMs = 0;
+      let markerExists = false;
+      try {
+        const stat = fs.statSync(markerPath);
+        markerExists = true;
+        markerStaleMs = Date.now() - stat.mtimeMs;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      }
+
+      const latch = getLatches(session.id);
+      const sessionEpoch = `${session.id}:${interactiveEntry.spawnedAt ?? 0}`;
+
+      // Bridge marker says CC stopped responding. If there's no PTY signal
+      // explaining it (modal, quota notice, etc.) AND we're not already in a
+      // scheduled rate-limit wait, treat as silent-stuck and kill-respawn.
+      // Rate-limit wait takes priority — we don't want to interrupt the timer.
+      if (markerExists && scan.signal === null && latch.rateLimitScheduled === null) {
+        log.warn(
+          `Bridge marker detected silent stuck — kill-respawn session=${session.id} markerStaleMs=${markerStaleMs}`,
+        );
+        killContainer(session.id, `bridge-unresponsive-${markerStaleMs}ms`);
+        // Skip the rest of the sweep tick for this session — the container is
+        // dying, decideAction would just race with that. Recurrence/etc. will
+        // pick up on the next tick once the container is fully gone.
+        return;
+      }
+
       const action = decideAction({
-        bufferSignal: signal,
+        scan,
+        latch,
         heartbeatStaleMs: hbStaleMs,
         processAlive: true,
         pendingMessages: dueCount,
       });
+
       if (action !== 'ok') {
-        executeAction(
-          action,
-          session.id,
-          (data: string) => interactiveEntry.process.stdin?.write(data),
-          () => killContainer(session.id, `interactive-guard-${action}`),
+        log.warn(
+          `Interactive guard: action=${action} signal=${scan.signal ?? '-'} hbStaleMs=${hbStaleMs} pending=${dueCount} session=${session.id}`,
         );
+
+        const killWithFlags = (flags?: RespawnFlags) =>
+          killContainer(session.id, `interactive-guard-${action}`, flags);
+
+        const notify = (text: string) => {
+          try {
+            const sess = getSession(session.id);
+            if (!sess) return;
+            let platformId: string | null = null;
+            let channelType: string | null = null;
+            if (sess.messaging_group_id) {
+              const mg = getMessagingGroup(sess.messaging_group_id);
+              if (mg) {
+                platformId = mg.platform_id;
+                channelType = mg.channel_type;
+              }
+            }
+            writeOutboundDirect(agentGroup.id, session.id, {
+              id: `guard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              kind: 'chat',
+              platformId,
+              channelType,
+              threadId: sess.thread_id ?? null,
+              content: JSON.stringify({ text }),
+            });
+          } catch (err) {
+            log.error('Interactive guard: notify write failed', { sessionId: session.id, err });
+          }
+        };
+
+        executeAction(action, scan, latch, {
+          sessionId: session.id,
+          sessionEpoch,
+          ptyWrite: (data: string) => interactiveEntry.process.stdin?.write(data),
+          killProcess: killWithFlags,
+          notify,
+          // LIVE LOOKUP — captures the active map, NOT a stale entry. The
+          // rate-limit timer fires minutes/hours later; by then the entry may
+          // have been replaced by a respawn, so we must re-read each time.
+          getEntry: () => {
+            const e = getInteractiveEntry(session.id);
+            return e ? { sessionEpoch: `${session.id}:${e.spawnedAt ?? 0}` } : undefined;
+          },
+        });
+
         if (action === 'send-enter') {
           interactiveEntry.ptyBuffer.data = '';
         }
