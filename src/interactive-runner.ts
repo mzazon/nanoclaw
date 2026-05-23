@@ -73,6 +73,12 @@ export function buildMcpJson(bridgeServerPath: string): string {
 }
 
 export function resolveClaudeBin(): string {
+  // Override for pinning to a specific CC version (e.g. when a newer release
+  // regresses the interactive runtime). Existence-checked so a stale value
+  // doesn't silently brick spawn.
+  const override = process.env.NANOCLAW_CLAUDE_BIN;
+  if (override && fs.existsSync(override)) return override;
+
   const home = process.env.HOME || os.homedir();
   const candidates = [path.join(home, '.local', 'bin', 'claude'), path.join(home, '.npm-global', 'bin', 'claude')];
   for (const c of candidates) {
