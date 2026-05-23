@@ -161,6 +161,18 @@ export function touchHeartbeat(heartbeatPath: string): void {
   writeFileSync(heartbeatPath, String(Date.now()));
 }
 
+export function readOutboundMaxSeq(sessionDir: string): number {
+  const db = new Database(`${sessionDir}/outbound.db`, { readonly: true });
+  try {
+    const row = db.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM messages_out').get() as { m: number };
+    return row.m;
+  } catch {
+    return 0;
+  } finally {
+    db.close();
+  }
+}
+
 export function getAllDestinations(sessionDir: string): DestinationEntry[] {
   const db = openInbound(sessionDir);
   try {

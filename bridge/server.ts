@@ -2,7 +2,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { getPendingMessages, markProcessing, markCompleted, touchHeartbeat } from './db.ts';
+import { getPendingMessages, markProcessing, markCompleted, touchHeartbeat, readOutboundMaxSeq } from './db.ts';
 import { handleReply, handleSendFile, buildInstructions } from './tools.ts';
 import {
   handleScheduleTask, handleListTasks, handleCancelTask,
@@ -10,6 +10,7 @@ import {
   SCHEDULING_TOOLS,
 } from './tools-scheduling.ts';
 import { handleNcl, NCL_TOOL } from './tools-ncl.ts';
+import { createUnresponsivenessState, checkUnresponsiveness } from './unresponsiveness.ts';
 import { join } from 'path';
 
 const SESSION_DIR = process.env.NANOCLAW_SESSION_DIR!;
@@ -22,6 +23,7 @@ if (!SESSION_DIR) {
 }
 
 const HEARTBEAT_PATH = join(SESSION_DIR, '.heartbeat');
+const UNRESPONSIVE_MARKER_PATH = join(SESSION_DIR, '.cc-unresponsive');
 const POLL_INTERVAL_MS = 1000;
 
 let currentInReplyTo: string | null = null;
@@ -138,67 +140,93 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
 if (import.meta.main) {
   await mcp.connect(new StdioServerTransport());
 
+  const unresponsivenessState = createUnresponsivenessState(UNRESPONSIVE_MARKER_PATH);
+  // Initialize outboundSeqAtLastCheck to current max seq so stuck-on-boot
+  // detection doesn't false-positive on pre-existing outbound rows.
+  try {
+    unresponsivenessState.outboundSeqAtLastCheck = readOutboundMaxSeq(SESSION_DIR);
+  } catch (err) {
+    process.stderr.write(`nanoclaw-bridge: failed to read initial outbound max-seq: ${err}\n`);
+  }
+  let lastObservedOutboundSeq = unresponsivenessState.outboundSeqAtLastCheck;
+
   function poll(): void {
     try {
       const messages = getPendingMessages(SESSION_DIR, isFirstPoll);
       isFirstPoll = false;
+
       if (messages.length === 0) {
         touchHeartbeat(HEARTBEAT_PATH);
-        return;
-      }
-      const ids = messages.map((m) => m.id);
-      markProcessing(SESSION_DIR, ids);
-
-      function parseMsg(msg: typeof messages[0]): { text: string; user: string } {
-        try {
-          const p = JSON.parse(msg.content);
-          return { text: p.text ?? msg.content, user: p.sender_handle ?? p.senderHandle ?? 'user' };
-        } catch {
-          return { text: msg.content, user: 'user' };
-        }
-      }
-
-      // Batch context: older messages prepended as context, only the
-      // last (triggering) message sets currentInReplyTo for reply routing.
-      if (messages.length > 1) {
-        const context = messages.slice(0, -1).map((m) => {
-          const { text, user } = parseMsg(m);
-          return `[${user} at ${m.timestamp}]: ${text}`;
-        });
-        const last = messages[messages.length - 1];
-        const { text, user } = parseMsg(last);
-        currentInReplyTo = last.id;
-        mcp.notification({
-          method: 'notifications/claude/channel',
-          params: {
-            content: `[Earlier messages]\n${context.join('\n')}\n\n[Latest]\n${text}`,
-            meta: {
-              chat_id: last.platform_id ?? AGENT_GROUP_ID ?? 'unknown',
-              message_id: last.id,
-              user,
-              ts: last.timestamp,
-            },
-          },
-        });
       } else {
-        const msg = messages[0];
-        const { text, user } = parseMsg(msg);
-        currentInReplyTo = msg.id;
-        mcp.notification({
-          method: 'notifications/claude/channel',
-          params: {
-            content: text,
-            meta: {
-              chat_id: msg.platform_id ?? AGENT_GROUP_ID ?? 'unknown',
-              message_id: msg.id,
-              user,
-              ts: msg.timestamp,
+        const ids = messages.map((m) => m.id);
+        markProcessing(SESSION_DIR, ids);
+
+        function parseMsg(msg: typeof messages[0]): { text: string; user: string } {
+          try {
+            const p = JSON.parse(msg.content);
+            return { text: p.text ?? msg.content, user: p.sender_handle ?? p.senderHandle ?? 'user' };
+          } catch {
+            return { text: msg.content, user: 'user' };
+          }
+        }
+
+        // Batch context: older messages prepended as context, only the
+        // last (triggering) message sets currentInReplyTo for reply routing.
+        if (messages.length > 1) {
+          const context = messages.slice(0, -1).map((m) => {
+            const { text, user } = parseMsg(m);
+            return `[${user} at ${m.timestamp}]: ${text}`;
+          });
+          const last = messages[messages.length - 1];
+          const { text, user } = parseMsg(last);
+          currentInReplyTo = last.id;
+          mcp.notification({
+            method: 'notifications/claude/channel',
+            params: {
+              content: `[Earlier messages]\n${context.join('\n')}\n\n[Latest]\n${text}`,
+              meta: {
+                chat_id: last.platform_id ?? AGENT_GROUP_ID ?? 'unknown',
+                message_id: last.id,
+                user,
+                ts: last.timestamp,
+              },
             },
-          },
-        });
+          });
+          unresponsivenessState.notificationsSent++;
+        } else {
+          const msg = messages[0];
+          const { text, user } = parseMsg(msg);
+          currentInReplyTo = msg.id;
+          mcp.notification({
+            method: 'notifications/claude/channel',
+            params: {
+              content: text,
+              meta: {
+                chat_id: msg.platform_id ?? AGENT_GROUP_ID ?? 'unknown',
+                message_id: msg.id,
+                user,
+                ts: msg.timestamp,
+              },
+            },
+          });
+          unresponsivenessState.notificationsSent++;
+        }
+        markCompleted(SESSION_DIR, ids);
+        touchHeartbeat(HEARTBEAT_PATH);
       }
-      markCompleted(SESSION_DIR, ids);
-      touchHeartbeat(HEARTBEAT_PATH);
+
+      // Unresponsiveness check runs every tick regardless of inbound traffic.
+      // checkUnresponsiveness self-throttles to 60s.
+      try {
+        const currentMaxSeq = readOutboundMaxSeq(SESSION_DIR);
+        if (currentMaxSeq > lastObservedOutboundSeq) {
+          unresponsivenessState.lastOutboundWriteMs = Date.now();
+          lastObservedOutboundSeq = currentMaxSeq;
+        }
+        checkUnresponsiveness(unresponsivenessState, currentMaxSeq, Date.now());
+      } catch (err) {
+        process.stderr.write(`nanoclaw-bridge: unresponsiveness check failed: ${err}\n`);
+      }
     } catch (e) {
       process.stderr.write(`nanoclaw-bridge: poll error: ${e}\n`);
     }
