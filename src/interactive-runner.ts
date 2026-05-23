@@ -58,7 +58,7 @@ export function buildMcpJson(bridgeServerPath: string): string {
   return JSON.stringify(
     {
       mcpServers: {
-        'bridge': {
+        bridge: {
           command: resolveBunBin(),
           args: ['run', bridgeServerPath],
         },
@@ -91,11 +91,7 @@ export function buildSpawnArgs(opts: {
   groupDir?: string;
   mcpConfigPath?: string;
 }): string[] {
-  const args: string[] = [
-    '--dangerously-skip-permissions',
-    '--dangerously-load-development-channels',
-    'server:bridge',
-  ];
+  const args: string[] = ['--dangerously-skip-permissions', '--dangerously-load-development-channels', 'server:bridge'];
   if (opts.mcpConfigPath) args.push('--mcp-config', opts.mcpConfigPath);
   if (opts.groupDir) args.push('--add-dir', opts.groupDir);
   if (opts.continueSession) args.push('--continue');

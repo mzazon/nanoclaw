@@ -59,7 +59,13 @@ import {
   sessionDir,
   writeOutboundDirect,
 } from './session-manager.js';
-import { isContainerRunning, killContainer, wakeContainer, getInteractiveEntry, getContainerName } from './container-runner.js';
+import {
+  isContainerRunning,
+  killContainer,
+  wakeContainer,
+  getInteractiveEntry,
+  getContainerName,
+} from './container-runner.js';
 import type { ContainerConfigRow, Session } from './types.js';
 
 function parseFreshContext(config: ContainerConfigRow): string | null {
