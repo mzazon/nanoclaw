@@ -69,8 +69,23 @@ const NETWORK_RE = /(Unable to connect to API|Credit balance is too low|Request 
 const MODEL_ERROR_RE =
   /(There(?:'|’)s an issue with the selected model|Claude Opus is not available with the Claude Pro plan|thinking\.type\.enabled is not supported)/i;
 
+/**
+ * Strip / normalize ANSI escape sequences from PTY output. CC renders its TUI
+ * with cursor-positioning codes (e.g., "You've\x1b[13Ghit\x1b[17Gyour weekly limit")
+ * which break literal-space regex matches. Replace cursor-movement codes with
+ * a space (they semantically separated words), then strip remaining CSI/OSC/etc.
+ */
+function normalizePtyBuffer(buf: string): string {
+  let s = buf.replace(/\x1b\[\??[\d;]*[ABCDEFGHJKST]/g, ' '); // cursor movement → space
+  s = s.replace(/\x1b\[\??[\d;]*[a-zA-Z]/g, ''); // colors/modes/erase
+  s = s.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, ''); // OSC (window title)
+  s = s.replace(/\x1b[a-zA-Z=>()#]/g, ''); // single-char escapes
+  return s.replace(/[ \t]+/g, ' '); // collapse repeated spaces
+}
+
 export function scanPtyBuffer(buffer: string): ScanResult {
-  const tail = buffer.length > TAIL_SCAN_CHARS ? buffer.slice(-TAIL_SCAN_CHARS) : buffer;
+  const rawTail = buffer.length > TAIL_SCAN_CHARS ? buffer.slice(-TAIL_SCAN_CHARS) : buffer;
+  const tail = normalizePtyBuffer(rawTail);
 
   // Priority 1: rate-limit (any of 3 anchors)
   if (HEADLINE_RE.test(tail) || LEGACY_RE.test(tail) || MENU_RE.test(tail)) {

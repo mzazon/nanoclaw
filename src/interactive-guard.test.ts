@@ -131,6 +131,35 @@ describe('scanPtyBuffer — other modals', () => {
   });
 });
 
+describe('scanPtyBuffer — ANSI escape sequence handling (real PTY output)', () => {
+  test('matches headline interleaved with cursor-positioning codes', () => {
+    // Real PTY capture: CC writes each word with absolute column positioning
+    const buf = "You've\x1b[13Ghit\x1b[17Gyour\x1b[22Gweekly\x1b[29Glimit\x1b[35G·\x1b[37Gresets\x1b[44G1pm\x1b[48G(America/New_York)";
+    const r = scanPtyBuffer(buf);
+    expect(r.signal).toBe('rate-limit');
+    expect(r.limitType).toBe('weekly');
+    expect(r.resetSpec).toEqual({ weekday: undefined, time: '1pm', tz: 'America/New_York' });
+  });
+
+  test('matches menu option with ANSI color codes', () => {
+    const buf = '\x1b[32m❯ 1. Stop and wait for limit to reset\x1b[0m';
+    expect(scanPtyBuffer(buf).signal).toBe('rate-limit');
+  });
+
+  test('matches quota-warning with cursor codes', () => {
+    const buf = "You've\x1b[13Gused\x1b[18G98%\x1b[22Gof\x1b[25Gyour\x1b[30Gweekly\x1b[37Glimit";
+    const r = scanPtyBuffer(buf);
+    expect(r.signal).toBe('quota-warning');
+    expect(r.percent).toBe(98);
+    expect(r.limitType).toBe('weekly');
+  });
+
+  test('strips OSC window-title escape', () => {
+    const buf = "\x1b]0;Claude Code\x07You've hit your weekly limit · resets 1pm";
+    expect(scanPtyBuffer(buf).signal).toBe('rate-limit');
+  });
+});
+
 describe('scanPtyBuffer — tail-slice defense', () => {
   test('only scans last 4000 chars', () => {
     const padding = 'x'.repeat(5000);
