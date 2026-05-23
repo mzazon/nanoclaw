@@ -85,6 +85,53 @@ describe('getLatches', () => {
   });
 });
 
+describe('computeResetMs — DST transitions', () => {
+  it('spring forward 2026-03-08 ET: 1am EST → 3pm EDT same day', () => {
+    vi.useFakeTimers();
+    // 2026-03-08T06:00:00Z = 1am EST (before spring forward at 2am)
+    vi.setSystemTime(new Date('2026-03-08T06:00:00Z'));
+    const result = computeResetMs({ time: '3pm', tz: 'America/New_York' });
+    // 3pm EDT = 19:00 UTC = 2026-03-08T19:00:00Z
+    expect(new Date(result).toISOString()).toBe('2026-03-08T19:00:00.000Z');
+    vi.useRealTimers();
+  });
+
+  it('fall back 2026-11-01 ET: 1am EDT → 3pm EST same day', () => {
+    vi.useFakeTimers();
+    // 2026-11-01T05:00:00Z = 1am EDT (before fall back at 2am)
+    vi.setSystemTime(new Date('2026-11-01T05:00:00Z'));
+    const result = computeResetMs({ time: '3pm', tz: 'America/New_York' });
+    // 3pm EST = 20:00 UTC = 2026-11-01T20:00:00Z
+    expect(new Date(result).toISOString()).toBe('2026-11-01T20:00:00.000Z');
+    vi.useRealTimers();
+  });
+});
+
+describe('computeResetMs — weekly resets', () => {
+  it('Mon target from Friday: 3-day-forward target preserved (not clamped to 1h)', () => {
+    vi.useFakeTimers();
+    // Friday 2026-05-22 at noon ET
+    vi.setSystemTime(new Date('2026-05-22T16:00:00Z'));
+    const result = computeResetMs({ weekday: 'Mon', time: '12:00am', tz: 'America/New_York' });
+    const now = Date.now();
+    // Should be roughly 60h away (Fri noon → Mon midnight = ~60h)
+    // Not clamped to now + 1h
+    expect(result - now).toBeGreaterThan(48 * 60 * 60_000);  // > 48h
+    expect(result - now).toBeLessThan(8 * 24 * 60 * 60_000); // < 8d
+    vi.useRealTimers();
+  });
+
+  it('weekly target across UTC midnight: Sun 11pm ET resolves to Sun in ET, not Mon UTC', () => {
+    vi.useFakeTimers();
+    // Friday 2026-05-22 noon ET
+    vi.setSystemTime(new Date('2026-05-22T16:00:00Z'));
+    const result = computeResetMs({ weekday: 'Sun', time: '11pm', tz: 'America/New_York' });
+    // Expected: Sunday 2026-05-24 23:00 ET = 2026-05-25T03:00:00Z (EDT, offset -4)
+    expect(new Date(result).toISOString()).toBe('2026-05-25T03:00:00.000Z');
+    vi.useRealTimers();
+  });
+});
+
 describe('onSessionDestroyed', () => {
   beforeEach(() => __resetLatchesForTest());
 
