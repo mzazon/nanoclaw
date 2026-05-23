@@ -274,6 +274,9 @@ export function executeAction(
         }
         log.info('Rate-limit timer firing — kill+respawn', { sessionId: ctx.sessionId });
         ctx.killProcess?.();   // default flags → continueSession stays true
+        // Defensive: clear the latch even if onSessionDestroyed doesn't fire (killProcess no-op, etc.)
+        // Without this, decideAction would suppress all future re-arms after this point.
+        latch.rateLimitScheduled = null;
       }, Math.max(0, resetAt - now + 30_000));
 
       latch.rateLimitScheduled = { resetAt, timeoutHandle, sessionEpoch };

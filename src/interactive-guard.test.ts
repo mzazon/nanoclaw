@@ -410,4 +410,24 @@ describe('executeAction', () => {
     );
     expect(killProcess).toHaveBeenCalledWith();
   });
+
+  test('kill with auth-required notifies operator before killing', () => {
+    const notify = vi.fn();
+    const killProcess = vi.fn();
+    executeAction('kill', { signal: 'auth-required' }, freshLatch(), {
+      sessionId: 's1', sessionEpoch: 's1:1', notify, killProcess,
+    });
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('Auth error'));
+    expect(killProcess).toHaveBeenCalledWith();
+  });
+
+  test('kill with model-error notifies operator before killing', () => {
+    const notify = vi.fn();
+    const killProcess = vi.fn();
+    executeAction('kill', { signal: 'model-error' }, freshLatch(), {
+      sessionId: 's1', sessionEpoch: 's1:1', notify, killProcess,
+    });
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('Model config error'));
+    expect(killProcess).toHaveBeenCalledWith();
+  });
 });
