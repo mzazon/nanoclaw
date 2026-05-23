@@ -148,6 +148,11 @@ if (import.meta.main) {
   } catch (err) {
     process.stderr.write(`nanoclaw-bridge: failed to read initial outbound max-seq: ${err}\n`);
   }
+  // Initialize lastOutboundWriteMs to boot time so outboundIdleMs is bounded
+  // from boot, not from unix epoch. Otherwise first check after boot sees
+  // sentDelta=1 (inbound notification just fired) + writeDelta=0 + idle=Infinity
+  // and writes a false-positive marker within seconds of spawn.
+  unresponsivenessState.lastOutboundWriteMs = Date.now();
   let lastObservedOutboundSeq = unresponsivenessState.outboundSeqAtLastCheck;
 
   function poll(): void {
