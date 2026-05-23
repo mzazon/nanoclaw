@@ -9,11 +9,62 @@ SESSION_DIR="${NANOCLAW_SESSION_DIR:-/workspaces/.nanoclaw}"
 PROJECT_DIR="/workspaces/project"
 
 # ---- Onboarding bypass ----
+# Pre-populate .claude.json to skip ALL interactive prompts: theme picker,
+# trust dialog, hooks trust, onboarding, cost threshold, effort callout.
+# Written to three locations — CC checks different paths across versions.
+# GrowthBook flags cached so CC doesn't need network to evaluate them.
+# Dev-channels prompt has no config bypass — fallback loop handles it.
 CLAUDE_DIR="${HOME}/.claude"
 mkdir -p "$CLAUDE_DIR"
-cat > "${HOME}/.claude.json" <<'EOF'
-{"hasCompletedOnboarding":true,"numStartups":2,"installMethod":"native","lastOnboardingVersion":"2.1.128"}
-EOF
+CC_CONFIG='{
+  "hasCompletedOnboarding": true,
+  "numStartups": 10,
+  "installMethod": "native",
+  "lastOnboardingVersion": "2.1.128",
+  "lastReleaseNotesSeen": "2.1.128",
+  "migrationVersion": 13,
+  "opusProMigrationComplete": true,
+  "sonnet1m45MigrationComplete": true,
+  "officialMarketplaceAutoInstallAttempted": true,
+  "officialMarketplaceAutoInstalled": true,
+  "hasTrustDialogAccepted": true,
+  "hasTrustDialogHooksAccepted": true,
+  "hasAcknowledgedCostThreshold": true,
+  "effortCalloutV2Dismissed": true,
+  "theme": "dark",
+  "projects": {
+    "/workspaces/project": {
+      "hasTrustDialogAccepted": true,
+      "hasTrustDialogHooksAccepted": true,
+      "hasCompletedProjectOnboarding": true
+    }
+  },
+  "cachedGrowthBookFeatures": {
+    "tengu_harbor": true,
+    "tengu_ccr_bridge": true,
+    "tengu_gouda_loop": true,
+    "tengu_worktree_mode": true,
+    "tengu_kairos_cron": true,
+    "tengu_cobalt_raccoon": true,
+    "tengu_disable_bypass_permissions_mode": false,
+    "tengu_bridge_repl_v2": true,
+    "tengu_streaming_tool_execution2": true,
+    "tengu_kairos_loop_dynamic": true,
+    "tengu_kairos_push_notifications": true,
+    "tengu_mcp_elicitation": true,
+    "tengu_cobalt_compass": true,
+    "tengu_harbor_permissions": true,
+    "tengu_permission_friction": true,
+    "tengu_mcp_singleton_unwrap": true,
+    "tengu_penguins_enabled": true,
+    "tengu_keybinding_customization_release": true,
+    "tengu_copper_bridge": true,
+    "tengu_sedge_lantern": true
+  }
+}'
+echo "$CC_CONFIG" > "${HOME}/.claude.json"
+echo "$CC_CONFIG" > "${CLAUDE_DIR}/.config.json"
+echo "$CC_CONFIG" > "${CLAUDE_DIR}/claude.json"
 
 # ---- Git safe directories for mounted volumes ----
 git config --global --add safe.directory "$PROJECT_DIR"
@@ -77,11 +128,12 @@ PTY_OUTPUT="${SESSION_DIR}/.pty-output"
 tmux new-session -d -s cc -c "$PROJECT_DIR" "$CLAUDE_BIN $CLAUDE_ARGS"
 tmux pipe-pane -O -t cc "cat >> ${PTY_OUTPUT}"
 
-# ---- Auto-accept startup prompts ----
-# Watch PTY output and respond to specific prompts.
+# ---- Auto-accept startup prompts (fallback) ----
+# With baked .claude.json, most prompts are skipped. This catches
+# any that slip through on CC version upgrades or flag changes.
 (
-  for i in $(seq 1 30); do
-    sleep 2
+  sleep 1
+  for i in $(seq 1 15); do
     SCREEN=$(tmux capture-pane -p -t cc 2>/dev/null || true)
     case "$SCREEN" in
       *"text style"*|*"theme"*)
@@ -93,9 +145,9 @@ tmux pipe-pane -O -t cc "cat >> ${PTY_OUTPUT}"
       *"local development"*|*"development channels"*)
         tmux send-keys -t cc Up Enter 2>/dev/null ;;
       *"❯"*|*">"*)
-        # Agent prompt ready — stop accepting
         break ;;
     esac
+    sleep 1
   done
 ) &
 

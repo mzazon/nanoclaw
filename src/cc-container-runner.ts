@@ -48,6 +48,13 @@ export function buildCcContainerMounts(
   // Session dir → devcontainer-standard path
   mounts.push({ hostPath: sessDir, containerPath: '/workspaces/.nanoclaw', readonly: false });
 
+  // CC project data (session .jsonl, memory) — persists across container restarts
+  // so --continue works and CC can resume conversations. Path slug is deterministic
+  // because the container CWD is always /workspaces/project.
+  const ccProjectsDir = path.join(sessDir, '.claude-projects');
+  fs.mkdirSync(ccProjectsDir, { recursive: true });
+  mounts.push({ hostPath: ccProjectsDir, containerPath: '/home/node/.claude/projects', readonly: false });
+
   // Group dir → project CWD
   mounts.push({ hostPath: groupDir, containerPath: '/workspaces/project', readonly: false });
 
