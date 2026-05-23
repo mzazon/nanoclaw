@@ -191,7 +191,7 @@ if (import.meta.main) {
                 ts: last.timestamp,
               },
             },
-          });
+          }).catch((e) => process.stderr.write(`nanoclaw-bridge: notification send failed: ${e}\n`));
           unresponsivenessState.notificationsSent++;
         } else {
           const msg = messages[0];
@@ -208,7 +208,7 @@ if (import.meta.main) {
                 ts: msg.timestamp,
               },
             },
-          });
+          }).catch((e) => process.stderr.write(`nanoclaw-bridge: notification send failed: ${e}\n`));
           unresponsivenessState.notificationsSent++;
         }
         markCompleted(SESSION_DIR, ids);

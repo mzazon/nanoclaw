@@ -1,5 +1,17 @@
+#!/usr/bin/env bash
+set -e
+
+# 1. Prettier formatting on staged src/**/*.ts
 staged=$(git diff --cached --name-only --diff-filter=ACM -- 'src/**/*.ts')
 pnpm run format:fix
 if [ -n "$staged" ]; then
   echo "$staged" | xargs git add
+fi
+
+# 2. Chain to global hook (gitleaks, trufflehog, private-key, conflict markers).
+# core.hooksPath=.husky bypasses the global template/hooks setup, so we invoke
+# it explicitly here. If the global hook is missing the chain is a no-op.
+GLOBAL_HOOK="$HOME/.config/git/template/hooks/pre-commit"
+if [ -x "$GLOBAL_HOOK" ]; then
+  "$GLOBAL_HOOK"
 fi

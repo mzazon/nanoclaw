@@ -59,6 +59,12 @@ const LIMIT_TYPE_RE = /\b(session|weekly|Opus)\s+limit\b/i;
 
 const AUTH_RE =
   /(Please run \/login|Not logged in|OAuth token (?:revoked|has expired|does not meet scope)|Invalid API key|organization has been disabled|disabled Claude subscription access|authentication_error)/i;
+// "exceeded context window" / "Image was too large" are the weakest anchors
+// here — agent prose could include them. Mitigations: (1) tail-slice limits
+// scan to last 4000 chars so older self-description scrolls away; (2) the
+// kill-respawn-noContinue action is recoverable (user re-sends, fresh context).
+// Bare "Conversation too long" was removed because "Error during compaction"
+// already catches the canonical CC framing for that case.
 const CONTEXT_OVERFLOW_RE =
   /(Prompt is too long|Error during compaction|Request too large \(max \d+ MB\)|Image was too large|exceeded context window)/i;
 const POLICY_REFUSAL_RE = /violate our Usage Policy/i;
