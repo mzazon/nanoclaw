@@ -4,7 +4,7 @@ import { getPendingMessages, markProcessing, markCompleted, type MessageInRow } 
 import { writeMessageOut } from './db/messages-out.js';
 import { getInboundDb, touchHeartbeat, clearStaleProcessingAcks } from './db/connection.js';
 import { clearContinuation, migrateLegacyContinuation, setContinuation } from './db/session-state.js';
-import { clearCurrentInReplyTo, setCurrentInReplyTo } from './current-batch.js';
+import { clearCurrentInReplyTo, setCurrentInReplyTo, wasDeliveredViaMcp } from './current-batch.js';
 import { resetToolVisStream } from './hooks/tool-visibility.js';
 import { getSessionRouting } from './db/session-routing.js';
 import {
@@ -28,6 +28,112 @@ function log(msg: string): void {
 
 function generateId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export type ErrorKind =
+  | 'rate-limit'
+  | 'auth'
+  | 'context-overflow'
+  | 'policy-refusal'
+  | 'network'
+  | 'model-error'
+  | 'overloaded'
+  | 'unknown';
+
+export interface ClassifiedError {
+  kind: ErrorKind;
+  userMessage: string;
+  resetAt?: number;
+  suppressNudge: boolean;
+}
+
+interface ErrorLike {
+  message?: string;
+  classification?: string;
+  retryable?: boolean;
+}
+
+/**
+ * Classify an SDK 'error' event into a user-facing message. Returns
+ * { kind: 'unknown', suppressNudge: false, userMessage: '' } when the
+ * error doesn't match any known pattern — the caller leaves the existing
+ * unwrapped-text nudge to fire as before.
+ */
+export function classifyError(event: ErrorLike): ClassifiedError {
+  const m = event.message ?? '';
+  const cls = event.classification ?? '';
+
+  if (cls === 'rate_limit' || /rate.?limit/i.test(m) || /\b429\b/.test(m)) {
+    const when = parseResetFromSdkMessage(m) ?? 'shortly';
+    return {
+      kind: 'rate-limit',
+      userMessage: `⏸ I hit my API rate limit. Resets at ${when}. Please re-send your message after the reset.`,
+      suppressNudge: true,
+    };
+  }
+
+  if (cls === 'authentication_error' || /\b401\b|invalid.api.key/i.test(m)) {
+    return {
+      kind: 'auth',
+      userMessage: '🔒 Auth error — API credentials need attention. Operator has been notified.',
+      suppressNudge: true,
+    };
+  }
+
+  if (/prompt is too long|context_length_exceeded|conversation too long/i.test(m)) {
+    return {
+      kind: 'context-overflow',
+      userMessage: '📏 My context window filled up. Please re-state your last request.',
+      suppressNudge: true,
+    };
+  }
+
+  if (/violate our Usage Policy/i.test(m)) {
+    return {
+      kind: 'policy-refusal',
+      userMessage: "⚠️ My last response was blocked by Anthropic's usage policy. Please rephrase.",
+      suppressNudge: true,
+    };
+  }
+
+  if (cls === 'overloaded_error' || /overloaded|\b529\b/.test(m)) {
+    return {
+      kind: 'overloaded',
+      userMessage: "⏳ Anthropic's API is temporarily overloaded. Will retry next message.",
+      suppressNudge: true,
+    };
+  }
+
+  if (/network|ECONNREFUSED|ECONNRESET|ETIMEDOUT|fetch failed/i.test(m)) {
+    return {
+      kind: 'network',
+      userMessage: '🌐 Network error reaching the API. Will retry on the next message.',
+      suppressNudge: true,
+    };
+  }
+
+  if (/model.*(not.found|does.not.exist|unavailable)|invalid_request.*model/i.test(m)) {
+    return {
+      kind: 'model-error',
+      userMessage: `🛠 Model config issue: ${m.slice(0, 200)}. Operator notified.`,
+      suppressNudge: true,
+    };
+  }
+
+  return { kind: 'unknown', userMessage: '', suppressNudge: false };
+}
+
+function parseResetFromSdkMessage(m: string): string | null {
+  const patterns = [
+    /resets?\s+at\s+([^.\n]+)/i,
+    /resets?\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)(?:\s+\([^)]+\))?)/i,
+    /try again after\s+([^.\n]+)/i,
+  ];
+  for (const p of patterns) {
+    const match = m.match(p);
+    if (match) return match[1].trim();
+  }
+  return null;
 }
 
 // LOCAL-003: generate responses for commands the Agent SDK ignores.
@@ -367,6 +473,10 @@ async function processQuery(
   let queryContinuation: string | undefined;
   let done = false;
   let unwrappedNudged = false;
+  // Per-batch scope. Reset whenever a fresh follow-up batch is pushed
+  // (alongside unwrappedNudged) so each turn gets at most one classified
+  // notice but the next turn can fire one too.
+  let errorClassified = false;
 
   // Concurrent polling: push follow-ups into the active query as they arrive.
   // We do NOT force-end the stream on silence — keeping the query open avoids
@@ -441,6 +551,7 @@ async function processQuery(
         const prompt = formatMessages(keep);
         log(`Pushing ${keep.length} follow-up message(s) into active query`);
         unwrappedNudged = false;
+        errorClassified = false;
         query.push(prompt);
         markCompleted(keptIds);
       } catch (err) {
@@ -487,7 +598,7 @@ async function processQuery(
               routing,
             );
           }
-          if (hasUnwrapped && !unwrappedNudged) {
+          if (hasUnwrapped && !unwrappedNudged && !errorClassified) {
             unwrappedNudged = true;
             const destinations = getAllDestinations();
             const names = destinations.map((d) => d.name).join(', ');
@@ -497,11 +608,27 @@ async function processQuery(
                 `Your destinations: ${names}. ` +
                 `Please re-send your response with the correct wrapping.</system>`,
             );
-          } else if (hasUnwrapped && unwrappedNudged) {
+          } else if (hasUnwrapped && unwrappedNudged && !errorClassified) {
             sendDropNotice(
               `Agent response was not delivered — it was not wrapped in message tags, and the retry also failed. Please re-send your last message.`,
               routing,
             );
+          }
+          // If errorClassified === true and hasUnwrapped, do nothing — the
+          // user already received a classified error message (rate-limit,
+          // auth, etc.) and re-prompting them about XML wrapping would be
+          // confusing and wrong.
+        }
+      } else if (event.type === 'error') {
+        if (errorClassified) {
+          log('Additional error suppressed — already classified one this batch');
+          // Early-break guard: if 2+ distinct errors fire in one turn, the
+          // user gets exactly one notice (the first), not a spam of them.
+        } else {
+          const cls = classifyError(event);
+          if (cls.kind !== 'unknown') {
+            sendErrorNotice(cls.userMessage, routing);
+            errorClassified = true;
           }
         }
       }
@@ -541,7 +668,7 @@ function handleEvent(event: ProviderEvent, _routing: RoutingContext): void {
  * The agent must always wrap output in <message to="name">...</message>
  * blocks, even with a single destination. Bare text is scratchpad only.
  */
-function dispatchResultText(
+export function dispatchResultText(
   text: string,
   routing: RoutingContext,
 ): { sent: number; hasUnwrapped: boolean; droppedDestinations: string[] } {
@@ -566,6 +693,16 @@ function dispatchResultText(
       log(`Unknown destination in <message to="${toName}">, dropping block`);
       scratchpadParts.push(`[dropped: unknown destination "${toName}"] ${body}`);
       droppedDestinations.push(toName);
+      continue;
+    }
+    const destPlatformId = dest.type === 'channel' ? dest.platformId! : dest.agentGroupId!;
+    const destChannelType = dest.type === 'channel' ? dest.channelType! : 'agent';
+    if (wasDeliveredViaMcp(destChannelType, destPlatformId)) {
+      // Agent already sent to this destination via send_message/send_file
+      // earlier in the turn. Skip the XML duplicate. Counts as sent so the
+      // unwrapped-text nudge doesn't fire.
+      log(`Skipping <message to="${toName}"> — destination already delivered via MCP tool this turn`);
+      sent++;
       continue;
     }
     sendToDestination(dest, body, routing);
@@ -600,6 +737,27 @@ function sendDropNotice(notice: string, routing: RoutingContext): void {
     channel_type: sessionRouting.channel_type,
     thread_id: sessionRouting.thread_id,
     content: JSON.stringify({ text: `⚠️ ${notice}` }),
+  });
+}
+
+/**
+ * Send a classified-error notice to the user. The classified message
+ * already includes its own emoji/prefix, so we don't prepend `⚠️` like
+ * sendDropNotice does. Same routing pattern: writes to outbound DB; host
+ * delivery picks it up via session_routing.
+ */
+function sendErrorNotice(notice: string, routing: RoutingContext): void {
+  const sessionRouting = getSessionRouting();
+  if (!sessionRouting.platform_id) return;
+  log(`Sending error notice: ${notice}`);
+  writeMessageOut({
+    id: generateId(),
+    in_reply_to: routing.inReplyTo,
+    kind: 'chat',
+    platform_id: sessionRouting.platform_id,
+    channel_type: sessionRouting.channel_type,
+    thread_id: sessionRouting.thread_id,
+    content: JSON.stringify({ text: notice }),
   });
 }
 

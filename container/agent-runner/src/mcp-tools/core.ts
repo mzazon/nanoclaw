@@ -10,7 +10,7 @@ import fs from 'fs';
 import path from 'path';
 import { AGENT_DIR, OUTBOX_DIR } from '../paths.js';
 
-import { getCurrentInReplyTo } from '../current-batch.js';
+import { getCurrentInReplyTo, recordMcpDelivery } from '../current-batch.js';
 import { findByName, getAllDestinations } from '../destinations.js';
 import { getMessageIdBySeq, getRoutingBySeq, writeMessageOut } from '../db/messages-out.js';
 import { getSessionRouting } from '../db/session-routing.js';
@@ -138,6 +138,7 @@ export const sendMessage: McpToolDefinition = {
       thread_id: threadId,
       content: JSON.stringify({ text }),
     });
+    recordMcpDelivery(routing.channel_type, routing.platform_id);
 
     log(`send_message: #${seq} → ${routing.resolvedName}${explicitThreadId ? ' (explicit thread)' : ''}`);
     return ok(`Message sent to ${routing.resolvedName} (id: ${seq})`);
@@ -185,6 +186,7 @@ export const sendFile: McpToolDefinition = {
       thread_id: routing.thread_id,
       content: JSON.stringify({ text: (args.text as string) || '', files: [filename] }),
     });
+    recordMcpDelivery(routing.channel_type, routing.platform_id);
 
     log(`send_file: ${id} → ${routing.resolvedName} (${filename})`);
     return ok(`File sent to ${routing.resolvedName} (id: ${id}, filename: ${filename})`);

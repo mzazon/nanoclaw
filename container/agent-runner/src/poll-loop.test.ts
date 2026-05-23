@@ -5,6 +5,7 @@ import { getPendingMessages, markCompleted } from './db/messages-in.js';
 import { getUndeliveredMessages } from './db/messages-out.js';
 import { formatMessages, extractRouting } from './formatter.js';
 import { MockProvider } from './providers/mock.js';
+import { classifyError } from './poll-loop.js';
 
 beforeEach(() => {
   initTestSessionDb();
@@ -373,5 +374,69 @@ describe('end-to-end with mock provider', () => {
     expect(outMessages).toHaveLength(1);
     expect(JSON.parse(outMessages[0].content).text).toBe('The answer is 4');
     expect(outMessages[0].in_reply_to).toBe('m1');
+  });
+});
+
+describe('classifyError', () => {
+  it('classifies rate-limit by classification field', () => {
+    expect(classifyError({ classification: 'rate_limit', message: 'too many' }).kind).toBe('rate-limit');
+  });
+
+  it('classifies rate-limit by message regex', () => {
+    expect(classifyError({ message: 'Rate limit exceeded' }).kind).toBe('rate-limit');
+  });
+
+  it('classifies rate-limit by 429', () => {
+    expect(classifyError({ message: 'HTTP 429' }).kind).toBe('rate-limit');
+  });
+
+  it('classifies auth', () => {
+    expect(classifyError({ classification: 'authentication_error', message: '401' }).kind).toBe('auth');
+  });
+
+  it('classifies context-overflow', () => {
+    expect(classifyError({ message: 'Prompt is too long' }).kind).toBe('context-overflow');
+  });
+
+  it('classifies policy-refusal', () => {
+    expect(classifyError({ message: 'violate our Usage Policy' }).kind).toBe('policy-refusal');
+  });
+
+  it('classifies overloaded', () => {
+    expect(classifyError({ classification: 'overloaded_error', message: 'busy' }).kind).toBe('overloaded');
+  });
+
+  it('classifies network', () => {
+    expect(classifyError({ message: 'fetch failed' }).kind).toBe('network');
+  });
+
+  it('classifies model-error', () => {
+    expect(classifyError({ message: 'model claude-foo does not exist' }).kind).toBe('model-error');
+  });
+
+  it('returns unknown for random text', () => {
+    expect(classifyError({ message: 'random thing' }).kind).toBe('unknown');
+  });
+
+  it('rate-limit suppressNudge is true', () => {
+    expect(classifyError({ message: '429' }).suppressNudge).toBe(true);
+  });
+
+  it('unknown suppressNudge is false', () => {
+    expect(classifyError({ message: 'random' }).suppressNudge).toBe(false);
+  });
+
+  it('unknown returns empty userMessage', () => {
+    expect(classifyError({ message: 'random' }).userMessage).toBe('');
+  });
+
+  it('rate-limit parses "resets at" timestamp into user message', () => {
+    const cls = classifyError({ classification: 'rate_limit', message: 'rate limit hit, resets at 3pm UTC' });
+    expect(cls.userMessage).toContain('3pm UTC');
+  });
+
+  it('rate-limit falls back to "shortly" when no reset time parses', () => {
+    const cls = classifyError({ message: 'HTTP 429' });
+    expect(cls.userMessage).toContain('shortly');
   });
 });
