@@ -8,14 +8,12 @@ set -euo pipefail
 SESSION_DIR="${NANOCLAW_SESSION_DIR:-/workspaces/.nanoclaw}"
 PROJECT_DIR="/workspaces/project"
 
-# ---- Onboarding bypass + telemetry disable ----
+# ---- Onboarding bypass ----
 CLAUDE_DIR="${HOME}/.claude"
 mkdir -p "$CLAUDE_DIR"
-if [ ! -f "$CLAUDE_DIR/.claude.json" ]; then
-  cat > "$CLAUDE_DIR/.claude.json" <<'EOF'
-{"hasTrustDialogAccepted":true,"hasCompletedOnboarding":true,"telemetryDisabled":true,"autoUpdaterDisabled":true,"preferredNotifChannel":"none"}
+cat > "${HOME}/.claude.json" <<'EOF'
+{"hasCompletedOnboarding":true,"numStartups":2,"installMethod":"native","lastOnboardingVersion":"2.1.128"}
 EOF
-fi
 
 # ---- Git safe directories for mounted volumes ----
 git config --global --add safe.directory "$PROJECT_DIR"
@@ -32,8 +30,12 @@ fi
 
 CLAUDE_ARGS="$CLAUDE_ARGS --add-dir ${PROJECT_DIR}"
 
+# --continue only if a prior CC session exists in the container's .claude dir.
+# Without a prior session, --continue causes CC to print "No conversation found" and exit.
 if [ "${NANOCLAW_NO_CONTINUE:-0}" != "1" ]; then
-  CLAUDE_ARGS="$CLAUDE_ARGS --continue"
+  if find "${CLAUDE_DIR}/projects" -name "*.jsonl" -print -quit 2>/dev/null | grep -q .; then
+    CLAUDE_ARGS="$CLAUDE_ARGS --continue"
+  fi
 fi
 
 if [ -n "${NANOCLAW_MODEL:-}" ]; then
@@ -47,13 +49,20 @@ if [ -f /app/cc-hooks/pretool-deny-picker.sh ]; then
   cp /app/cc-hooks/pretool-deny-picker.sh "$HOOKS_DIR/"
   chmod +x "$HOOKS_DIR/pretool-deny-picker.sh"
 fi
-cat > "$CLAUDE_DIR/settings.json" <<'SETTINGS'
+cat > "$CLAUDE_DIR/settings.json" <<SETTINGS
 {
+  "trustedFolders": ["${PROJECT_DIR}", "/home/node"],
+  "skipDangerousModePermissionPrompt": true,
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "AskUserQuestion|ExitPlanMode",
-        "command": "~/.claude/hooks/pretool-deny-picker.sh $TOOL_NAME"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/pretool-deny-picker.sh \$TOOL_NAME"
+          }
+        ]
       }
     ]
   }
@@ -68,8 +77,27 @@ PTY_OUTPUT="${SESSION_DIR}/.pty-output"
 tmux new-session -d -s cc -c "$PROJECT_DIR" "$CLAUDE_BIN $CLAUDE_ARGS"
 tmux pipe-pane -O -t cc "cat >> ${PTY_OUTPUT}"
 
-# ---- Auto-accept dev-channels prompt (5s) ----
-(sleep 5 && tmux send-keys -t cc Enter 2>/dev/null) &
+# ---- Auto-accept startup prompts ----
+# Watch PTY output and respond to specific prompts.
+(
+  for i in $(seq 1 30); do
+    sleep 2
+    SCREEN=$(tmux capture-pane -p -t cc 2>/dev/null || true)
+    case "$SCREEN" in
+      *"text style"*|*"theme"*)
+        tmux send-keys -t cc Enter 2>/dev/null ;;
+      *"trust this folder"*)
+        tmux send-keys -t cc Enter 2>/dev/null ;;
+      *"I accept"*|*"Bypass Permissions"*)
+        tmux send-keys -t cc Up Enter 2>/dev/null ;;
+      *"local development"*|*"development channels"*)
+        tmux send-keys -t cc Up Enter 2>/dev/null ;;
+      *"❯"*|*">"*)
+        # Agent prompt ready — stop accepting
+        break ;;
+    esac
+  done
+) &
 
 # ---- Signal trap — graceful shutdown ----
 cleanup() {

@@ -10,6 +10,7 @@ import path from 'path';
 import { OneCLI } from '@onecli-sh/sdk';
 
 import {
+  CC_CONTAINER_OAUTH_TOKEN,
   CONTAINER_IMAGE,
   CONTAINER_IMAGE_BASE,
   CONTAINER_INSTALL_LABEL,
@@ -234,8 +235,6 @@ async function spawnContainer(session: Session): Promise<void> {
     const containerName = `cc-${agentGroup.folder}-${Date.now()}`;
     const agentIdentifier = agentGroup.id;
 
-    await onecli.ensureAgent({ name: agentGroup.name, identifier: agentIdentifier });
-
     const args: string[] = ['run', '--rm', '--name', containerName, '--label', CONTAINER_INSTALL_LABEL];
 
     const envPairs = buildCcContainerEnv(agentGroup, containerConfig, contribution);
@@ -249,11 +248,11 @@ async function spawnContainer(session: Session): Promise<void> {
       args.push('-e', 'NANOCLAW_NO_CONTINUE=1');
     }
 
-    const onecliApplied = await onecli.applyContainerConfig(args, { addHostMapping: false, agent: agentIdentifier });
-    if (!onecliApplied) {
-      throw new Error('OneCLI gateway not applied — refusing to spawn cc-container without credentials');
+    // CC auth: long-lived OAuth token from claude setup-token (stored in .env).
+    // No OneCLI proxy — CC uses subscription billing directly.
+    if (CC_CONTAINER_OAUTH_TOKEN) {
+      args.push('-e', `CLAUDE_CODE_OAUTH_TOKEN=${CC_CONTAINER_OAUTH_TOKEN}`);
     }
-    log.info('OneCLI gateway applied', { containerName });
 
     args.push(...hostGatewayArgs());
 

@@ -125,8 +125,8 @@ COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 # ---- Workspace + permissions -------------------------------------------------
-RUN mkdir -p /workspace/group /workspace/extra && \
-    chown -R node:node /workspace && \
+RUN mkdir -p /workspace/group /workspace/extra /home/node/.claude && \
+    chown -R node:node /workspace /home/node/.claude && \
     chmod 777 /home/node
 
 USER node
