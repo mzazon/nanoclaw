@@ -527,7 +527,7 @@ describe('host-sweep — bridge marker handling', () => {
   test('TOCTOU-safe stat survives marker removal between checks', () => {
     const markerPath = path.join(tmpDir, '.cc-unresponsive');
     fs.writeFileSync(markerPath, '{}');
-    fs.rmSync(markerPath);   // remove right before stat (simulates bridge cleanup race)
+    fs.rmSync(markerPath); // remove right before stat (simulates bridge cleanup race)
     let crashed = false;
     let stale = 0;
     let exists = false;

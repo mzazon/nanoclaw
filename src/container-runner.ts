@@ -199,7 +199,7 @@ async function spawnContainer(session: Session): Promise<void> {
     const { spawnInteractiveSession } = await import('./interactive-runner.js');
     const flags = pendingRespawnFlags.get(session.id);
     const result = await spawnInteractiveSession(session, agentGroup, containerConfig, flags);
-    pendingRespawnFlags.delete(session.id);  // only clear on success
+    pendingRespawnFlags.delete(session.id); // only clear on success
     activeContainers.set(session.id, {
       process: result.child,
       containerName: result.name,

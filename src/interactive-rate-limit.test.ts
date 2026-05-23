@@ -18,7 +18,7 @@ describe('parseResetTime', () => {
   });
 
   it('parses "resets Mon 12:00am" with weekday', () => {
-    expect(parseResetTime("resets Mon 12:00am")).toEqual({
+    expect(parseResetTime('resets Mon 12:00am')).toEqual({
       weekday: 'Mon',
       time: '12:00am',
       tz: undefined,
@@ -26,7 +26,7 @@ describe('parseResetTime', () => {
   });
 
   it('parses "resets 1:30pm" with minutes, no tz', () => {
-    expect(parseResetTime("resets 1:30pm")).toEqual({
+    expect(parseResetTime('resets 1:30pm')).toEqual({
       weekday: undefined,
       time: '1:30pm',
       tz: undefined,
@@ -34,7 +34,7 @@ describe('parseResetTime', () => {
   });
 
   it('returns null when no reset clause present', () => {
-    expect(parseResetTime("nothing here")).toBeNull();
+    expect(parseResetTime('nothing here')).toBeNull();
   });
 });
 
@@ -116,7 +116,7 @@ describe('computeResetMs — weekly resets', () => {
     const now = Date.now();
     // Should be roughly 60h away (Fri noon → Mon midnight = ~60h)
     // Not clamped to now + 1h
-    expect(result - now).toBeGreaterThan(48 * 60 * 60_000);  // > 48h
+    expect(result - now).toBeGreaterThan(48 * 60 * 60_000); // > 48h
     expect(result - now).toBeLessThan(8 * 24 * 60 * 60_000); // < 8d
     vi.useRealTimers();
   });

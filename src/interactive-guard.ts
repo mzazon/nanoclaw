@@ -5,12 +5,7 @@
  * policy, etc.) and decides whether to send a keystroke, kill, or kill-respawn.
  */
 import { log } from './log.js';
-import {
-  parseResetTime,
-  computeResetMs,
-  type ResetSpec,
-  type SessionLatches,
-} from './interactive-rate-limit.js';
+import { parseResetTime, computeResetMs, type ResetSpec, type SessionLatches } from './interactive-rate-limit.js';
 import type { RespawnFlags } from './interactive-runner.js';
 
 const STUCK_THRESHOLD_MS = 5 * 60 * 1000;
@@ -81,9 +76,9 @@ export function scanPtyBuffer(buffer: string): ScanResult {
   if (HEADLINE_RE.test(tail) || LEGACY_RE.test(tail) || MENU_RE.test(tail)) {
     const limitTypeMatch = tail.match(LIMIT_TYPE_RE);
     const limitType: LimitType = limitTypeMatch
-      ? (limitTypeMatch[1].toLowerCase() === 'opus'
-          ? 'Opus'
-          : (limitTypeMatch[1].toLowerCase() as 'session' | 'weekly'))
+      ? limitTypeMatch[1].toLowerCase() === 'opus'
+        ? 'Opus'
+        : (limitTypeMatch[1].toLowerCase() as 'session' | 'weekly')
       : 'unknown';
     return {
       signal: 'rate-limit',
@@ -114,9 +109,9 @@ export function scanPtyBuffer(buffer: string): ScanResult {
   const quotaMatch = tail.match(QUOTA_WARNING_RE);
   if (quotaMatch) {
     const percent = parseInt(quotaMatch[1], 10);
-    const limitType = (quotaMatch[2].toLowerCase() === 'opus'
-      ? 'Opus'
-      : (quotaMatch[2].toLowerCase() as 'session' | 'weekly')) as LimitType;
+    const limitType = (
+      quotaMatch[2].toLowerCase() === 'opus' ? 'Opus' : (quotaMatch[2].toLowerCase() as 'session' | 'weekly')
+    ) as LimitType;
     return {
       signal: 'quota-warning',
       percent,
@@ -134,18 +129,13 @@ export function scanPtyBuffer(buffer: string): ScanResult {
 }
 
 // Re-exports for consumer (host-sweep, will use these in Task 6)
-export {
-  STUCK_THRESHOLD_MS,
-  IDLE_THRESHOLD_MS,
-  AUTO_MODE_GRACE_MS,
-  NETWORK_GRACE_MS,
-};
+export { STUCK_THRESHOLD_MS, IDLE_THRESHOLD_MS, AUTO_MODE_GRACE_MS, NETWORK_GRACE_MS };
 
 // ---- decideAction ----
 
 export interface DecideState {
   scan: ScanResult;
-  latch: SessionLatches;            // per-session, caller looks up via getLatches
+  latch: SessionLatches; // per-session, caller looks up via getLatches
   heartbeatStaleMs: number;
   processAlive: boolean;
   pendingMessages: number;
@@ -188,7 +178,7 @@ export function decideAction(state: DecideState): GuardAction {
 
     case null:
       // No PTY signal — fall through to existing heartbeat-based heuristics
-      if (latch.rateLimitScheduled !== null) return 'ok';   // suppression during rate-limit wait
+      if (latch.rateLimitScheduled !== null) return 'ok'; // suppression during rate-limit wait
       if (heartbeatStaleMs > STUCK_THRESHOLD_MS && processAlive && pendingMessages > 0) {
         return 'kill-respawn';
       }
@@ -210,12 +200,7 @@ export interface ExecuteContext {
   getEntry?: () => { sessionEpoch: string } | undefined;
 }
 
-export function executeAction(
-  action: GuardAction,
-  scan: ScanResult,
-  latch: SessionLatches,
-  ctx: ExecuteContext,
-): void {
+export function executeAction(action: GuardAction, scan: ScanResult, latch: SessionLatches, ctx: ExecuteContext): void {
   switch (action) {
     case 'send-enter':
       ctx.ptyWrite?.('\r');
@@ -240,7 +225,9 @@ export function executeAction(
     case 'kill-respawn-noContinue':
       log.info('Interactive guard: kill-respawn (noContinue)', { sessionId: ctx.sessionId, signal: scan.signal });
       if (scan.signal === 'context-overflow') {
-        ctx.notify?.('📏 My context filled up. Restarting with a fresh transcript — please re-state your last request.');
+        ctx.notify?.(
+          '📏 My context filled up. Restarting with a fresh transcript — please re-state your last request.',
+        );
       } else if (scan.signal === 'policy-refusal') {
         ctx.notify?.('⚠️ Last response blocked by Anthropic Usage Policy. Restarting; please rephrase.');
       }
@@ -253,7 +240,7 @@ export function executeAction(
       return;
 
     case 'rate-limit-schedule': {
-      ctx.ptyWrite?.('\r');   // accept "Stop and wait" default
+      ctx.ptyWrite?.('\r'); // accept "Stop and wait" default
       const now = Date.now();
       const computed = computeResetMs(scan.resetSpec ?? null);
       const resetAt = Number.isFinite(computed) ? computed : now + 60 * 60 * 1000;
@@ -267,23 +254,26 @@ export function executeAction(
       );
 
       const sessionEpoch = ctx.sessionEpoch;
-      const timeoutHandle = setTimeout(() => {
-        const entry = ctx.getEntry?.();
-        if (!entry) return;
-        if (entry.sessionEpoch !== sessionEpoch) {
-          log.info('Rate-limit timer fired but session epoch changed — skipping', {
-            sessionId: ctx.sessionId,
-            armedEpoch: sessionEpoch,
-            currentEpoch: entry.sessionEpoch,
-          });
-          return;
-        }
-        log.info('Rate-limit timer firing — kill+respawn', { sessionId: ctx.sessionId });
-        ctx.killProcess?.();   // default flags → continueSession stays true
-        // Defensive: clear the latch even if onSessionDestroyed doesn't fire (killProcess no-op, etc.)
-        // Without this, decideAction would suppress all future re-arms after this point.
-        latch.rateLimitScheduled = null;
-      }, Math.max(0, resetAt - now + 30_000));
+      const timeoutHandle = setTimeout(
+        () => {
+          const entry = ctx.getEntry?.();
+          if (!entry) return;
+          if (entry.sessionEpoch !== sessionEpoch) {
+            log.info('Rate-limit timer fired but session epoch changed — skipping', {
+              sessionId: ctx.sessionId,
+              armedEpoch: sessionEpoch,
+              currentEpoch: entry.sessionEpoch,
+            });
+            return;
+          }
+          log.info('Rate-limit timer firing — kill+respawn', { sessionId: ctx.sessionId });
+          ctx.killProcess?.(); // default flags → continueSession stays true
+          // Defensive: clear the latch even if onSessionDestroyed doesn't fire (killProcess no-op, etc.)
+          // Without this, decideAction would suppress all future re-arms after this point.
+          latch.rateLimitScheduled = null;
+        },
+        Math.max(0, resetAt - now + 30_000),
+      );
 
       latch.rateLimitScheduled = { resetAt, timeoutHandle, sessionEpoch };
       log.info('Rate-limit scheduled', { sessionId: ctx.sessionId, resetAt: new Date(resetAt).toISOString() });

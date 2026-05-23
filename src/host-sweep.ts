@@ -371,8 +371,7 @@ async function sweepSession(session: Session): Promise<void> {
           `Interactive guard: action=${action} signal=${scan.signal ?? '-'} hbStaleMs=${hbStaleMs} pending=${dueCount} session=${session.id}`,
         );
 
-        const killWithFlags = (flags?: RespawnFlags) =>
-          killContainer(session.id, `interactive-guard-${action}`, flags);
+        const killWithFlags = (flags?: RespawnFlags) => killContainer(session.id, `interactive-guard-${action}`, flags);
 
         const notify = (text: string) => {
           try {

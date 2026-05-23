@@ -55,17 +55,18 @@ export function computeResetMs(spec: ResetSpec | null): number {
 }
 
 /** Compute the UTC offset (in ms) for a given Y/M/D/H/Min interpreted in `targetTz`. */
-function tzOffsetForDate(
-  targetTz: string,
-  y: number, mo: number, d: number, h: number, min: number,
-): number {
+function tzOffsetForDate(targetTz: string, y: number, mo: number, d: number, h: number, min: number): number {
   // Build a UTC timestamp as if those wall-clock components were UTC, then
   // compare to what Intl reports for that timestamp in the target tz.
   const utcMs = Date.UTC(y, mo, d, h, min);
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: targetTz,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: 'numeric', minute: 'numeric', hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
   }).formatToParts(new Date(utcMs));
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '0';
   const probeMs = Date.UTC(
@@ -93,8 +94,12 @@ function resolveAbsoluteEpoch(spec: ResetSpec, now: number, tz?: string): number
     // Get current wall-clock date components in the target tz.
     const nowParts = new Intl.DateTimeFormat('en-US', {
       timeZone: targetTz,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: 'numeric', minute: 'numeric', hour12: false,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: false,
     }).formatToParts(new Date(now));
     const get = (t: string) => nowParts.find((p) => p.type === t)?.value ?? '0';
     const y = parseInt(get('year'), 10);
@@ -104,8 +109,7 @@ function resolveAbsoluteEpoch(spec: ResetSpec, now: number, tz?: string): number
     // Bug 1 fix: compute offset for the TARGET date (not now) to handle DST transitions.
     // First pass: figure out if we need to roll to the next day, using now's offset as an
     // approximation, then recompute the offset for the actual target date.
-    const nowOffsetMs = tzOffsetForDate(targetTz, y, mo, d,
-      parseInt(get('hour'), 10), parseInt(get('minute'), 10));
+    const nowOffsetMs = tzOffsetForDate(targetTz, y, mo, d, parseInt(get('hour'), 10), parseInt(get('minute'), 10));
 
     // Initial candidate using now's offset (may be off by 1h on DST-transition days).
     let candidate = Date.UTC(y, mo, d, hour, minute) - nowOffsetMs;
@@ -132,7 +136,9 @@ function resolveAbsoluteEpoch(spec: ResetSpec, now: number, tz?: string): number
     // to miss the target (e.g. spring-forward skipping Sun 11pm ET entirely).
     if (spec.weekday) {
       // Start from the already-normalised calendar day for the initial candidate.
-      let cy = ty, cmo = tmo, cd = td;
+      let cy = ty,
+        cmo = tmo,
+        cd = td;
       for (let i = 0; i < 8; i++) {
         // Recompute offset for this specific calendar day + target time (DST-safe).
         const offsetMs = tzOffsetForDate(targetTz, cy, cmo, cd, hour, minute);

@@ -30,7 +30,7 @@ describe('scanPtyBuffer — rate-limit (3-layer regex)', () => {
   });
 
   test('HEADLINE matches typographic apostrophe', () => {
-    const r = scanPtyBuffer("You’ve hit your weekly limit · resets 1pm");
+    const r = scanPtyBuffer('You’ve hit your weekly limit · resets 1pm');
     expect(r.signal).toBe('rate-limit');
   });
 
@@ -41,17 +41,17 @@ describe('scanPtyBuffer — rate-limit (3-layer regex)', () => {
   });
 
   test('MENU layer matches even without headline', () => {
-    const r = scanPtyBuffer("❯ 1. Stop and wait for limit to reset");
+    const r = scanPtyBuffer('❯ 1. Stop and wait for limit to reset');
     expect(r.signal).toBe('rate-limit');
   });
 
   test('MENU "Upgrade your plan" matches', () => {
-    const r = scanPtyBuffer("  2. Upgrade your plan");
+    const r = scanPtyBuffer('  2. Upgrade your plan');
     expect(r.signal).toBe('rate-limit');
   });
 
   test('LEGACY wording matches', () => {
-    const r = scanPtyBuffer("Claude usage limit reached. Your limit will reset at Oct 7, 1am.");
+    const r = scanPtyBuffer('Claude usage limit reached. Your limit will reset at Oct 7, 1am.');
     expect(r.signal).toBe('rate-limit');
   });
 });
@@ -79,35 +79,35 @@ describe('scanPtyBuffer — quota-warning', () => {
 
 describe('scanPtyBuffer — other modals', () => {
   test('auth-required: /login prompt', () => {
-    expect(scanPtyBuffer("Not logged in · Please run /login").signal).toBe('auth-required');
+    expect(scanPtyBuffer('Not logged in · Please run /login').signal).toBe('auth-required');
   });
 
   test('auth-required: OAuth revoked', () => {
-    expect(scanPtyBuffer("OAuth token revoked · Please run /login").signal).toBe('auth-required');
+    expect(scanPtyBuffer('OAuth token revoked · Please run /login').signal).toBe('auth-required');
   });
 
   test('context-overflow: prompt too long', () => {
-    expect(scanPtyBuffer("Prompt is too long").signal).toBe('context-overflow');
+    expect(scanPtyBuffer('Prompt is too long').signal).toBe('context-overflow');
   });
 
   test('context-overflow: compaction error', () => {
-    expect(scanPtyBuffer("Error during compaction: Conversation too long").signal).toBe('context-overflow');
+    expect(scanPtyBuffer('Error during compaction: Conversation too long').signal).toBe('context-overflow');
   });
 
   test('policy-refusal', () => {
-    expect(scanPtyBuffer("violate our Usage Policy").signal).toBe('policy-refusal');
+    expect(scanPtyBuffer('violate our Usage Policy').signal).toBe('policy-refusal');
   });
 
   test('auto-mode-block', () => {
-    expect(scanPtyBuffer("auto mode cannot determine the safety of Bash right now").signal).toBe('auto-mode-block');
+    expect(scanPtyBuffer('auto mode cannot determine the safety of Bash right now').signal).toBe('auto-mode-block');
   });
 
   test('network-block: unable to connect', () => {
-    expect(scanPtyBuffer("Unable to connect to API. Check your internet").signal).toBe('network-block');
+    expect(scanPtyBuffer('Unable to connect to API. Check your internet').signal).toBe('network-block');
   });
 
   test('network-block: credit balance', () => {
-    expect(scanPtyBuffer("Credit balance is too low").signal).toBe('network-block');
+    expect(scanPtyBuffer('Credit balance is too low').signal).toBe('network-block');
   });
 
   test('model-error: bad model', () => {
@@ -115,19 +115,19 @@ describe('scanPtyBuffer — other modals', () => {
   });
 
   test('dev-prompt: existing', () => {
-    expect(scanPtyBuffer("I am using this for local development").signal).toBe('dev-prompt');
+    expect(scanPtyBuffer('I am using this for local development').signal).toBe('dev-prompt');
   });
 
   test('clean buffer returns null', () => {
-    expect(scanPtyBuffer("normal claude output").signal).toBeNull();
+    expect(scanPtyBuffer('normal claude output').signal).toBeNull();
   });
 
   test('empty buffer returns null', () => {
-    expect(scanPtyBuffer("").signal).toBeNull();
+    expect(scanPtyBuffer('').signal).toBeNull();
   });
 
   test('legacy "rate-limit-options" no longer matches', () => {
-    expect(scanPtyBuffer("rate-limit-options").signal).toBeNull();
+    expect(scanPtyBuffer('rate-limit-options').signal).toBeNull();
   });
 });
 
@@ -146,18 +146,18 @@ describe('scanPtyBuffer — tail-slice defense', () => {
   });
 
   test('priority order: auth beats context-overflow', () => {
-    const buf = "Prompt is too long\nPlease run /login";
+    const buf = 'Prompt is too long\nPlease run /login';
     expect(scanPtyBuffer(buf).signal).toBe('auth-required');
   });
 });
 
 describe('scanPtyBuffer — context-overflow regex tightening', () => {
   test('context-overflow: NOT triggered by bare "Conversation too long" in agent prose', () => {
-    expect(scanPtyBuffer("the conversation was too long for me to summarize quickly").signal).toBeNull();
+    expect(scanPtyBuffer('the conversation was too long for me to summarize quickly').signal).toBeNull();
   });
 
   test('context-overflow: still catches "Error during compaction" canonical framing', () => {
-    expect(scanPtyBuffer("Error during compaction: this got too big").signal).toBe('context-overflow');
+    expect(scanPtyBuffer('Error during compaction: this got too big').signal).toBe('context-overflow');
   });
 });
 
@@ -175,7 +175,11 @@ describe('decideAction', () => {
 
   test('rate-limit + existing latch → ok', () => {
     const latch = freshLatch();
-    latch.rateLimitScheduled = { resetAt: Date.now() + 1000, timeoutHandle: setTimeout(() => {}, 9999), sessionEpoch: 's:1' };
+    latch.rateLimitScheduled = {
+      resetAt: Date.now() + 1000,
+      timeoutHandle: setTimeout(() => {}, 9999),
+      sessionEpoch: 's:1',
+    };
     const action = decideAction({
       scan: { signal: 'rate-limit', limitType: 'weekly' },
       latch,
@@ -189,7 +193,11 @@ describe('decideAction', () => {
 
   test('null signal + rate-limit latch armed → ok (suppression)', () => {
     const latch = freshLatch();
-    latch.rateLimitScheduled = { resetAt: Date.now() + 1000, timeoutHandle: setTimeout(() => {}, 9999), sessionEpoch: 's:1' };
+    latch.rateLimitScheduled = {
+      resetAt: Date.now() + 1000,
+      timeoutHandle: setTimeout(() => {}, 9999),
+      sessionEpoch: 's:1',
+    };
     const action = decideAction({
       scan: { signal: null },
       latch,
@@ -226,93 +234,111 @@ describe('decideAction', () => {
   });
 
   test('dev-prompt → send-enter', () => {
-    expect(decideAction({
-      scan: { signal: 'dev-prompt' },
-      latch: freshLatch(),
-      heartbeatStaleMs: 0,
-      processAlive: true,
-      pendingMessages: 0,
-    })).toBe('send-enter');
+    expect(
+      decideAction({
+        scan: { signal: 'dev-prompt' },
+        latch: freshLatch(),
+        heartbeatStaleMs: 0,
+        processAlive: true,
+        pendingMessages: 0,
+      }),
+    ).toBe('send-enter');
   });
 
   test('auth-required → kill', () => {
-    expect(decideAction({
-      scan: { signal: 'auth-required' },
-      latch: freshLatch(),
-      heartbeatStaleMs: 0,
-      processAlive: true,
-      pendingMessages: 0,
-    })).toBe('kill');
+    expect(
+      decideAction({
+        scan: { signal: 'auth-required' },
+        latch: freshLatch(),
+        heartbeatStaleMs: 0,
+        processAlive: true,
+        pendingMessages: 0,
+      }),
+    ).toBe('kill');
   });
 
   test('model-error → kill', () => {
-    expect(decideAction({
-      scan: { signal: 'model-error' },
-      latch: freshLatch(),
-      heartbeatStaleMs: 0,
-      processAlive: true,
-      pendingMessages: 0,
-    })).toBe('kill');
+    expect(
+      decideAction({
+        scan: { signal: 'model-error' },
+        latch: freshLatch(),
+        heartbeatStaleMs: 0,
+        processAlive: true,
+        pendingMessages: 0,
+      }),
+    ).toBe('kill');
   });
 
   test('context-overflow → kill-respawn-noContinue', () => {
-    expect(decideAction({
-      scan: { signal: 'context-overflow' },
-      latch: freshLatch(),
-      heartbeatStaleMs: 0,
-      processAlive: true,
-      pendingMessages: 0,
-    })).toBe('kill-respawn-noContinue');
+    expect(
+      decideAction({
+        scan: { signal: 'context-overflow' },
+        latch: freshLatch(),
+        heartbeatStaleMs: 0,
+        processAlive: true,
+        pendingMessages: 0,
+      }),
+    ).toBe('kill-respawn-noContinue');
   });
 
   test('policy-refusal → kill-respawn-noContinue', () => {
-    expect(decideAction({
-      scan: { signal: 'policy-refusal' },
-      latch: freshLatch(),
-      heartbeatStaleMs: 0,
-      processAlive: true,
-      pendingMessages: 0,
-    })).toBe('kill-respawn-noContinue');
+    expect(
+      decideAction({
+        scan: { signal: 'policy-refusal' },
+        latch: freshLatch(),
+        heartbeatStaleMs: 0,
+        processAlive: true,
+        pendingMessages: 0,
+      }),
+    ).toBe('kill-respawn-noContinue');
   });
 
   test('auto-mode-block below grace → ok', () => {
-    expect(decideAction({
-      scan: { signal: 'auto-mode-block' },
-      latch: freshLatch(),
-      heartbeatStaleMs: 60_000,
-      processAlive: true,
-      pendingMessages: 0,
-    })).toBe('ok');
+    expect(
+      decideAction({
+        scan: { signal: 'auto-mode-block' },
+        latch: freshLatch(),
+        heartbeatStaleMs: 60_000,
+        processAlive: true,
+        pendingMessages: 0,
+      }),
+    ).toBe('ok');
   });
 
   test('auto-mode-block above grace → kill-respawn', () => {
-    expect(decideAction({
-      scan: { signal: 'auto-mode-block' },
-      latch: freshLatch(),
-      heartbeatStaleMs: 3 * 60_000,
-      processAlive: true,
-      pendingMessages: 0,
-    })).toBe('kill-respawn');
+    expect(
+      decideAction({
+        scan: { signal: 'auto-mode-block' },
+        latch: freshLatch(),
+        heartbeatStaleMs: 3 * 60_000,
+        processAlive: true,
+        pendingMessages: 0,
+      }),
+    ).toBe('kill-respawn');
   });
 
   test('network-block above grace → kill-respawn', () => {
-    expect(decideAction({
-      scan: { signal: 'network-block' },
-      latch: freshLatch(),
-      heartbeatStaleMs: 6 * 60_000,
-      processAlive: true,
-      pendingMessages: 0,
-    })).toBe('kill-respawn');
+    expect(
+      decideAction({
+        scan: { signal: 'network-block' },
+        latch: freshLatch(),
+        heartbeatStaleMs: 6 * 60_000,
+        processAlive: true,
+        pendingMessages: 0,
+      }),
+    ).toBe('kill-respawn');
   });
 
   test('null signal + stale heartbeat + pending → kill-respawn', () => {
-    expect(decideAction({
-      scan: { signal: null },
-      latch: freshLatch(),
-      heartbeatStaleMs: 6 * 60_000,
-      processAlive: true,
-      pendingMessages: 3,
-    })).toBe('kill-respawn');
+    expect(
+      decideAction({
+        scan: { signal: null },
+        latch: freshLatch(),
+        heartbeatStaleMs: 6 * 60_000,
+        processAlive: true,
+        pendingMessages: 3,
+      }),
+    ).toBe('kill-respawn');
   });
 });
 
@@ -391,23 +417,22 @@ describe('executeAction', () => {
 
   test('kill-respawn-noContinue passes noContinue flag', () => {
     const killProcess = vi.fn();
-    executeAction(
-      'kill-respawn-noContinue',
-      { signal: 'context-overflow' },
-      freshLatch(),
-      { sessionId: 's1', sessionEpoch: 's1:1', killProcess, notify: () => {} },
-    );
+    executeAction('kill-respawn-noContinue', { signal: 'context-overflow' }, freshLatch(), {
+      sessionId: 's1',
+      sessionEpoch: 's1:1',
+      killProcess,
+      notify: () => {},
+    });
     expect(killProcess).toHaveBeenCalledWith({ noContinue: true });
   });
 
   test('kill-respawn default → no flags', () => {
     const killProcess = vi.fn();
-    executeAction(
-      'kill-respawn',
-      { signal: 'network-block' },
-      freshLatch(),
-      { sessionId: 's1', sessionEpoch: 's1:1', killProcess },
-    );
+    executeAction('kill-respawn', { signal: 'network-block' }, freshLatch(), {
+      sessionId: 's1',
+      sessionEpoch: 's1:1',
+      killProcess,
+    });
     expect(killProcess).toHaveBeenCalledWith();
   });
 
@@ -415,7 +440,10 @@ describe('executeAction', () => {
     const notify = vi.fn();
     const killProcess = vi.fn();
     executeAction('kill', { signal: 'auth-required' }, freshLatch(), {
-      sessionId: 's1', sessionEpoch: 's1:1', notify, killProcess,
+      sessionId: 's1',
+      sessionEpoch: 's1:1',
+      notify,
+      killProcess,
     });
     expect(notify).toHaveBeenCalledWith(expect.stringContaining('Auth error'));
     expect(killProcess).toHaveBeenCalledWith();
@@ -425,7 +453,10 @@ describe('executeAction', () => {
     const notify = vi.fn();
     const killProcess = vi.fn();
     executeAction('kill', { signal: 'model-error' }, freshLatch(), {
-      sessionId: 's1', sessionEpoch: 's1:1', notify, killProcess,
+      sessionId: 's1',
+      sessionEpoch: 's1:1',
+      notify,
+      killProcess,
     });
     expect(notify).toHaveBeenCalledWith(expect.stringContaining('Model config error'));
     expect(killProcess).toHaveBeenCalledWith();
