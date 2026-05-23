@@ -7,6 +7,7 @@
 import { log } from './log.js';
 import {
   parseResetTime,
+  computeResetMs,
   type ResetSpec,
   type SessionLatches,
 } from './interactive-rate-limit.js';
@@ -59,7 +60,7 @@ const LIMIT_TYPE_RE = /\b(session|weekly|Opus)\s+limit\b/i;
 const AUTH_RE =
   /(Please run \/login|Not logged in|OAuth token (?:revoked|has expired|does not meet scope)|Invalid API key|organization has been disabled|disabled Claude subscription access|authentication_error)/i;
 const CONTEXT_OVERFLOW_RE =
-  /(Prompt is too long|Error during compaction|Request too large \(max \d+ MB\)|Image was too large|exceeded context window|Conversation too long)/i;
+  /(Prompt is too long|Error during compaction|Request too large \(max \d+ MB\)|Image was too large|exceeded context window)/i;
 const POLICY_REFUSAL_RE = /violate our Usage Policy/i;
 const AUTO_MODE_RE =
   /(auto mode cannot determine the safety|Auto mode could not evaluate this action|classifier transcript exceeded)/i;
@@ -134,4 +135,166 @@ export {
   NETWORK_GRACE_MS,
 };
 
-// decideAction + executeAction in Task 5
+// ---- decideAction ----
+
+export interface DecideState {
+  scan: ScanResult;
+  latch: SessionLatches;            // per-session, caller looks up via getLatches
+  heartbeatStaleMs: number;
+  processAlive: boolean;
+  pendingMessages: number;
+}
+
+export function decideAction(state: DecideState): GuardAction {
+  const { scan, latch, heartbeatStaleMs, processAlive, pendingMessages } = state;
+
+  switch (scan.signal) {
+    case 'rate-limit':
+      return latch.rateLimitScheduled !== null ? 'ok' : 'rate-limit-schedule';
+
+    case 'quota-warning': {
+      if (!scan.percent || !scan.limitType || scan.limitType === 'unknown') return 'ok';
+      const bucket = scan.percent >= 100 ? 100 : scan.percent >= 99 ? 99 : 95;
+      const seen = latch.quotaWarned[scan.limitType as 'session' | 'weekly' | 'Opus'];
+      return seen.has(bucket) ? 'ok' : 'quota-warning-notify';
+    }
+
+    case 'dev-prompt':
+      return 'send-enter';
+
+    case 'auth-required':
+      return 'kill';
+
+    case 'model-error':
+      return 'kill';
+
+    case 'context-overflow':
+      return 'kill-respawn-noContinue';
+
+    case 'policy-refusal':
+      return 'kill-respawn-noContinue';
+
+    case 'auto-mode-block':
+      return heartbeatStaleMs > AUTO_MODE_GRACE_MS && processAlive ? 'kill-respawn' : 'ok';
+
+    case 'network-block':
+      return heartbeatStaleMs > NETWORK_GRACE_MS && processAlive ? 'kill-respawn' : 'ok';
+
+    case null:
+      // No PTY signal — fall through to existing heartbeat-based heuristics
+      if (latch.rateLimitScheduled !== null) return 'ok';   // suppression during rate-limit wait
+      if (heartbeatStaleMs > STUCK_THRESHOLD_MS && processAlive && pendingMessages > 0) {
+        return 'kill-respawn';
+      }
+      if (heartbeatStaleMs > IDLE_THRESHOLD_MS && processAlive && pendingMessages === 0) {
+        return 'kill-idle';
+      }
+      return 'ok';
+  }
+}
+
+// ---- executeAction ----
+
+export interface ExecuteContext {
+  sessionId: string;
+  sessionEpoch: string;
+  ptyWrite?: (data: string) => void;
+  killProcess?: (respawnFlags?: RespawnFlags) => void;
+  notify?: (text: string) => void;
+  getEntry?: () => { sessionEpoch: string } | undefined;
+}
+
+export function executeAction(
+  action: GuardAction,
+  scan: ScanResult,
+  latch: SessionLatches,
+  ctx: ExecuteContext,
+): void {
+  switch (action) {
+    case 'send-enter':
+      ctx.ptyWrite?.('\r');
+      log.info('Interactive guard: sent Enter keystroke', { sessionId: ctx.sessionId });
+      return;
+
+    case 'kill':
+      log.info('Interactive guard: killing session (no respawn)', { sessionId: ctx.sessionId, signal: scan.signal });
+      if (scan.signal === 'auth-required') {
+        ctx.notify?.('🔒 Auth error — operator action required (run /login or fix credentials). Session killed.');
+      } else if (scan.signal === 'model-error') {
+        ctx.notify?.('🛠 Model config error — operator must fix `/model` selection. Session killed.');
+      }
+      ctx.killProcess?.();
+      return;
+
+    case 'kill-respawn':
+      log.info('Interactive guard: kill-respawn', { sessionId: ctx.sessionId, signal: scan.signal });
+      ctx.killProcess?.();
+      return;
+
+    case 'kill-respawn-noContinue':
+      log.info('Interactive guard: kill-respawn (noContinue)', { sessionId: ctx.sessionId, signal: scan.signal });
+      if (scan.signal === 'context-overflow') {
+        ctx.notify?.('📏 My context filled up. Restarting with a fresh transcript — please re-state your last request.');
+      } else if (scan.signal === 'policy-refusal') {
+        ctx.notify?.('⚠️ Last response blocked by Anthropic Usage Policy. Restarting; please rephrase.');
+      }
+      ctx.killProcess?.({ noContinue: true });
+      return;
+
+    case 'kill-idle':
+      log.info('Interactive guard: killing idle session', { sessionId: ctx.sessionId });
+      ctx.killProcess?.();
+      return;
+
+    case 'rate-limit-schedule': {
+      ctx.ptyWrite?.('\r');   // accept "Stop and wait" default
+      const now = Date.now();
+      const computed = computeResetMs(scan.resetSpec ?? null);
+      const resetAt = Number.isFinite(computed) ? computed : now + 60 * 60 * 1000;
+
+      const limitLabel = scan.limitType && scan.limitType !== 'unknown' ? ` (${scan.limitType})` : '';
+      const whenLabel = scan.resetSpec
+        ? `${scan.resetSpec.weekday ? scan.resetSpec.weekday + ' ' : ''}${scan.resetSpec.time}${scan.resetSpec.tz ? ' ' + scan.resetSpec.tz : ''}`
+        : `in ~${Math.round((resetAt - now) / 60_000)} min`;
+      ctx.notify?.(
+        `⏸ Rate limited${limitLabel} — resets at ${whenLabel}. Your message is queued; I'll respond when the limit lifts.`,
+      );
+
+      const sessionEpoch = ctx.sessionEpoch;
+      const timeoutHandle = setTimeout(() => {
+        const entry = ctx.getEntry?.();
+        if (!entry) return;
+        if (entry.sessionEpoch !== sessionEpoch) {
+          log.info('Rate-limit timer fired but session epoch changed — skipping', {
+            sessionId: ctx.sessionId,
+            armedEpoch: sessionEpoch,
+            currentEpoch: entry.sessionEpoch,
+          });
+          return;
+        }
+        log.info('Rate-limit timer firing — kill+respawn', { sessionId: ctx.sessionId });
+        ctx.killProcess?.();   // default flags → continueSession stays true
+      }, Math.max(0, resetAt - now + 30_000));
+
+      latch.rateLimitScheduled = { resetAt, timeoutHandle, sessionEpoch };
+      log.info('Rate-limit scheduled', { sessionId: ctx.sessionId, resetAt: new Date(resetAt).toISOString() });
+      return;
+    }
+
+    case 'quota-warning-notify': {
+      if (!scan.percent || !scan.limitType || scan.limitType === 'unknown') return;
+      const bucket = scan.percent >= 100 ? 100 : scan.percent >= 99 ? 99 : 95;
+      latch.quotaWarned[scan.limitType as 'session' | 'weekly' | 'Opus'].add(bucket);
+      const whenLabel = scan.resetSpec
+        ? `${scan.resetSpec.weekday ? scan.resetSpec.weekday + ' ' : ''}${scan.resetSpec.time}${scan.resetSpec.tz ? ' ' + scan.resetSpec.tz : ''}`
+        : 'soon';
+      ctx.notify?.(
+        `⚠️ Heads up — at ${scan.percent}% of my ${scan.limitType} limit. If I stop responding, resets at ${whenLabel}.`,
+      );
+      return;
+    }
+
+    case 'ok':
+      return;
+  }
+}

@@ -1,5 +1,13 @@
-import { describe, test, expect } from 'vitest';
-import { scanPtyBuffer } from './interactive-guard.js';
+import { describe, test, expect, vi } from 'vitest';
+import { scanPtyBuffer, decideAction, executeAction } from './interactive-guard.js';
+import type { SessionLatches } from './interactive-rate-limit.js';
+
+function freshLatch(): SessionLatches {
+  return {
+    quotaWarned: { session: new Set(), weekly: new Set(), Opus: new Set() },
+    rateLimitScheduled: null,
+  };
+}
 
 describe('scanPtyBuffer — rate-limit (3-layer regex)', () => {
   test('HEADLINE matches "You\'ve hit your weekly limit"', () => {
@@ -140,5 +148,266 @@ describe('scanPtyBuffer — tail-slice defense', () => {
   test('priority order: auth beats context-overflow', () => {
     const buf = "Prompt is too long\nPlease run /login";
     expect(scanPtyBuffer(buf).signal).toBe('auth-required');
+  });
+});
+
+describe('scanPtyBuffer — context-overflow regex tightening', () => {
+  test('context-overflow: NOT triggered by bare "Conversation too long" in agent prose', () => {
+    expect(scanPtyBuffer("the conversation was too long for me to summarize quickly").signal).toBeNull();
+  });
+
+  test('context-overflow: still catches "Error during compaction" canonical framing', () => {
+    expect(scanPtyBuffer("Error during compaction: this got too big").signal).toBe('context-overflow');
+  });
+});
+
+describe('decideAction', () => {
+  test('rate-limit + no latch → schedule', () => {
+    const action = decideAction({
+      scan: { signal: 'rate-limit', limitType: 'weekly', resetSpec: { time: '1pm' } },
+      latch: freshLatch(),
+      heartbeatStaleMs: 0,
+      processAlive: true,
+      pendingMessages: 0,
+    });
+    expect(action).toBe('rate-limit-schedule');
+  });
+
+  test('rate-limit + existing latch → ok', () => {
+    const latch = freshLatch();
+    latch.rateLimitScheduled = { resetAt: Date.now() + 1000, timeoutHandle: setTimeout(() => {}, 9999), sessionEpoch: 's:1' };
+    const action = decideAction({
+      scan: { signal: 'rate-limit', limitType: 'weekly' },
+      latch,
+      heartbeatStaleMs: 0,
+      processAlive: true,
+      pendingMessages: 0,
+    });
+    expect(action).toBe('ok');
+    clearTimeout(latch.rateLimitScheduled!.timeoutHandle);
+  });
+
+  test('null signal + rate-limit latch armed → ok (suppression)', () => {
+    const latch = freshLatch();
+    latch.rateLimitScheduled = { resetAt: Date.now() + 1000, timeoutHandle: setTimeout(() => {}, 9999), sessionEpoch: 's:1' };
+    const action = decideAction({
+      scan: { signal: null },
+      latch,
+      heartbeatStaleMs: 10 * 60 * 1000,
+      processAlive: true,
+      pendingMessages: 5,
+    });
+    expect(action).toBe('ok');
+    clearTimeout(latch.rateLimitScheduled!.timeoutHandle);
+  });
+
+  test('quota-warning unwarned bucket → notify', () => {
+    const action = decideAction({
+      scan: { signal: 'quota-warning', limitType: 'weekly', percent: 98 },
+      latch: freshLatch(),
+      heartbeatStaleMs: 0,
+      processAlive: true,
+      pendingMessages: 0,
+    });
+    expect(action).toBe('quota-warning-notify');
+  });
+
+  test('quota-warning already-warned bucket → ok', () => {
+    const latch = freshLatch();
+    latch.quotaWarned.weekly.add(95);
+    const action = decideAction({
+      scan: { signal: 'quota-warning', limitType: 'weekly', percent: 98 },
+      latch,
+      heartbeatStaleMs: 0,
+      processAlive: true,
+      pendingMessages: 0,
+    });
+    expect(action).toBe('ok');
+  });
+
+  test('dev-prompt → send-enter', () => {
+    expect(decideAction({
+      scan: { signal: 'dev-prompt' },
+      latch: freshLatch(),
+      heartbeatStaleMs: 0,
+      processAlive: true,
+      pendingMessages: 0,
+    })).toBe('send-enter');
+  });
+
+  test('auth-required → kill', () => {
+    expect(decideAction({
+      scan: { signal: 'auth-required' },
+      latch: freshLatch(),
+      heartbeatStaleMs: 0,
+      processAlive: true,
+      pendingMessages: 0,
+    })).toBe('kill');
+  });
+
+  test('model-error → kill', () => {
+    expect(decideAction({
+      scan: { signal: 'model-error' },
+      latch: freshLatch(),
+      heartbeatStaleMs: 0,
+      processAlive: true,
+      pendingMessages: 0,
+    })).toBe('kill');
+  });
+
+  test('context-overflow → kill-respawn-noContinue', () => {
+    expect(decideAction({
+      scan: { signal: 'context-overflow' },
+      latch: freshLatch(),
+      heartbeatStaleMs: 0,
+      processAlive: true,
+      pendingMessages: 0,
+    })).toBe('kill-respawn-noContinue');
+  });
+
+  test('policy-refusal → kill-respawn-noContinue', () => {
+    expect(decideAction({
+      scan: { signal: 'policy-refusal' },
+      latch: freshLatch(),
+      heartbeatStaleMs: 0,
+      processAlive: true,
+      pendingMessages: 0,
+    })).toBe('kill-respawn-noContinue');
+  });
+
+  test('auto-mode-block below grace → ok', () => {
+    expect(decideAction({
+      scan: { signal: 'auto-mode-block' },
+      latch: freshLatch(),
+      heartbeatStaleMs: 60_000,
+      processAlive: true,
+      pendingMessages: 0,
+    })).toBe('ok');
+  });
+
+  test('auto-mode-block above grace → kill-respawn', () => {
+    expect(decideAction({
+      scan: { signal: 'auto-mode-block' },
+      latch: freshLatch(),
+      heartbeatStaleMs: 3 * 60_000,
+      processAlive: true,
+      pendingMessages: 0,
+    })).toBe('kill-respawn');
+  });
+
+  test('network-block above grace → kill-respawn', () => {
+    expect(decideAction({
+      scan: { signal: 'network-block' },
+      latch: freshLatch(),
+      heartbeatStaleMs: 6 * 60_000,
+      processAlive: true,
+      pendingMessages: 0,
+    })).toBe('kill-respawn');
+  });
+
+  test('null signal + stale heartbeat + pending → kill-respawn', () => {
+    expect(decideAction({
+      scan: { signal: null },
+      latch: freshLatch(),
+      heartbeatStaleMs: 6 * 60_000,
+      processAlive: true,
+      pendingMessages: 3,
+    })).toBe('kill-respawn');
+  });
+});
+
+describe('executeAction', () => {
+  test('rate-limit-schedule arms timer and stores in latch', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-22T17:00:00Z'));
+    const latch = freshLatch();
+    const notify = vi.fn();
+    const ptyWrite = vi.fn();
+    const killProcess = vi.fn();
+
+    executeAction(
+      'rate-limit-schedule',
+      { signal: 'rate-limit', limitType: 'weekly', resetSpec: { time: '2pm', tz: 'America/New_York' } },
+      latch,
+      {
+        sessionId: 's1',
+        sessionEpoch: 's1:1',
+        ptyWrite,
+        killProcess,
+        notify,
+        getEntry: () => ({ sessionEpoch: 's1:1' }),
+      },
+    );
+
+    expect(ptyWrite).toHaveBeenCalledWith('\r');
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('Rate limited (weekly)'));
+    expect(latch.rateLimitScheduled).not.toBeNull();
+    expect(latch.rateLimitScheduled!.sessionEpoch).toBe('s1:1');
+
+    vi.useRealTimers();
+    clearTimeout(latch.rateLimitScheduled!.timeoutHandle);
+  });
+
+  test('rate-limit timer skips kill if sessionEpoch changed', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-22T17:00:00Z'));
+    const latch = freshLatch();
+    const killProcess = vi.fn();
+    let currentEpoch = 's1:1';
+
+    executeAction(
+      'rate-limit-schedule',
+      { signal: 'rate-limit', resetSpec: { time: '1:01pm', tz: 'America/New_York' } },
+      latch,
+      {
+        sessionId: 's1',
+        sessionEpoch: 's1:1',
+        ptyWrite: () => {},
+        killProcess,
+        notify: () => {},
+        getEntry: () => ({ sessionEpoch: currentEpoch }),
+      },
+    );
+
+    currentEpoch = 's1:2';
+    vi.advanceTimersByTime(10 * 60 * 1000);
+    expect(killProcess).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
+  });
+
+  test('quota-warning-notify adds bucket to latch and notifies', () => {
+    const latch = freshLatch();
+    const notify = vi.fn();
+    executeAction(
+      'quota-warning-notify',
+      { signal: 'quota-warning', limitType: 'weekly', percent: 99, resetSpec: { time: '1pm' } },
+      latch,
+      { sessionId: 's1', sessionEpoch: 's1:1', notify },
+    );
+    expect(latch.quotaWarned.weekly.has(99)).toBe(true);
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('99%'));
+  });
+
+  test('kill-respawn-noContinue passes noContinue flag', () => {
+    const killProcess = vi.fn();
+    executeAction(
+      'kill-respawn-noContinue',
+      { signal: 'context-overflow' },
+      freshLatch(),
+      { sessionId: 's1', sessionEpoch: 's1:1', killProcess, notify: () => {} },
+    );
+    expect(killProcess).toHaveBeenCalledWith({ noContinue: true });
+  });
+
+  test('kill-respawn default → no flags', () => {
+    const killProcess = vi.fn();
+    executeAction(
+      'kill-respawn',
+      { signal: 'network-block' },
+      freshLatch(),
+      { sessionId: 's1', sessionEpoch: 's1:1', killProcess },
+    );
+    expect(killProcess).toHaveBeenCalledWith();
   });
 });
