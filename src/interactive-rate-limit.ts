@@ -127,18 +127,32 @@ function resolveAbsoluteEpoch(spec: ResetSpec, now: number, tz?: string): number
 
     // Bug 3 fix: use Intl weekday in target tz (not getUTCDay()) to handle evening times
     // that cross UTC midnight.
+    // Bug 4 fix: advance by calendar day in target tz (not by fixed ONE_DAY_MS) so that
+    // DST transitions don't silently shift the wall-clock hour and cause the weekday check
+    // to miss the target (e.g. spring-forward skipping Sun 11pm ET entirely).
     if (spec.weekday) {
-      let dayMs = candidate;
+      // Start from the already-normalised calendar day for the initial candidate.
+      let cy = ty, cmo = tmo, cd = td;
       for (let i = 0; i < 8; i++) {
+        // Recompute offset for this specific calendar day + target time (DST-safe).
+        const offsetMs = tzOffsetForDate(targetTz, cy, cmo, cd, hour, minute);
+        const epochMs = Date.UTC(cy, cmo, cd, hour, minute) - offsetMs;
         const dayParts = new Intl.DateTimeFormat('en-US', {
           timeZone: targetTz,
           weekday: 'short',
-        }).formatToParts(new Date(dayMs));
+        }).formatToParts(new Date(epochMs));
         const wdStr = dayParts.find((p) => p.type === 'weekday')?.value;
-        if (wdStr === spec.weekday) break;
-        dayMs += ONE_DAY_MS;
+        if (wdStr === spec.weekday) {
+          candidate = epochMs;
+          break;
+        }
+        // Advance by one calendar day; Date.UTC normalises month/year overflows.
+        cd += 1;
+        const next = new Date(Date.UTC(cy, cmo, cd));
+        cy = next.getUTCFullYear();
+        cmo = next.getUTCMonth();
+        cd = next.getUTCDate();
       }
-      candidate = dayMs;
     }
 
     return candidate;

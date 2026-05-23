@@ -130,6 +130,28 @@ describe('computeResetMs — weekly resets', () => {
     expect(new Date(result).toISOString()).toBe('2026-05-25T03:00:00.000Z');
     vi.useRealTimers();
   });
+
+  it('weekly target across spring-forward DST: Sat noon → Sun 11pm ET resolves correctly', () => {
+    vi.useFakeTimers();
+    // Saturday 2026-03-07 noon ET (still EST, day before spring forward)
+    vi.setSystemTime(new Date('2026-03-07T17:00:00Z'));
+    const result = computeResetMs({ weekday: 'Sun', time: '11pm', tz: 'America/New_York' });
+    // Expected: Sunday 2026-03-08 23:00 EDT = 2026-03-09T03:00:00Z
+    expect(new Date(result).toISOString()).toBe('2026-03-09T03:00:00.000Z');
+    vi.useRealTimers();
+  });
+
+  it('weekly target across fall-back DST: Sat noon Oct 31 → Sun 1:30am ET resolves correctly', () => {
+    vi.useFakeTimers();
+    // Saturday 2026-10-31 noon ET (still EDT)
+    vi.setSystemTime(new Date('2026-10-31T16:00:00Z'));
+    const result = computeResetMs({ weekday: 'Sun', time: '1:30am', tz: 'America/New_York' });
+    // Sun Nov 1 1:30am ET — ambiguous but tests existing code's resolution.
+    // Verify result is finite and after now (regression safety).
+    expect(Number.isFinite(result)).toBe(true);
+    expect(result).toBeGreaterThan(Date.now());
+    vi.useRealTimers();
+  });
 });
 
 describe('onSessionDestroyed', () => {
