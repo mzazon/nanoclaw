@@ -83,6 +83,9 @@ For ad-hoc queries from skills or scripts, use the in-tree wrapper rather than t
 | `src/channels/` | Channel adapter infra (registry, Chat SDK bridge); specific channel adapters are skill-installed from the `channels` branch |
 | `src/providers/` | Host-side provider container-config (`claude` baked in; `opencode` etc. installed from the `providers` branch) |
 | `container/agent-runner/src/` | Agent-runner: poll loop, formatter, provider abstraction, MCP tools, destinations |
+| `src/cc-container-runner.ts` | CC-container mount construction, Docker args, PTY polling, keystroke injection |
+| `container/cc-entrypoint.sh` | CC-container entrypoint: tmux lifecycle, onboarding, signal handling |
+| `container/cc-hooks/pretool-deny-picker.sh` | PreToolUse hook denying invisible picker tools |
 | `bridge/server.ts` | Channel plugin MCP server — bridges session DBs to CC `claude/channel` contract for interactive runtime |
 | `bridge/tools-scheduling.ts` | 6 scheduling MCP tools for bridge (schedule/list/cancel/update/pause/resume) |
 | `bridge/tools-ncl.ts` | NCL MCP tool with async request/response correlation via session DBs |
