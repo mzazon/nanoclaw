@@ -1,6 +1,6 @@
 /**
  * Interactive-session runner — LOCAL-012.
- * Spawns Claude Code in interactive TUI mode with the nanoclaw-bridge
+ * Spawns Claude Code in interactive TUI mode with the bridge
  * channel plugin for session DB I/O. Uses `script` for PTY allocation.
  */
 import { type ChildProcess, spawn } from 'child_process';
@@ -58,7 +58,7 @@ export function buildMcpJson(bridgeServerPath: string): string {
   return JSON.stringify(
     {
       mcpServers: {
-        'nanoclaw-bridge': {
+        'bridge': {
           command: resolveBunBin(),
           args: ['run', bridgeServerPath],
         },
@@ -94,7 +94,7 @@ export function buildSpawnArgs(opts: {
   const args: string[] = [
     '--dangerously-skip-permissions',
     '--dangerously-load-development-channels',
-    'server:nanoclaw-bridge',
+    'server:bridge',
   ];
   if (opts.mcpConfigPath) args.push('--mcp-config', opts.mcpConfigPath);
   if (opts.groupDir) args.push('--add-dir', opts.groupDir);

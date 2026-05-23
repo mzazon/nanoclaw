@@ -45,9 +45,9 @@ describe('interactive-runner', () => {
     test('generates correct server config', () => {
       const json = buildMcpJson('/app/bridge/server.ts');
       const parsed = JSON.parse(json);
-      expect(parsed.mcpServers['nanoclaw-bridge']).toBeDefined();
-      expect(parsed.mcpServers['nanoclaw-bridge'].command).toMatch(/bun$/);
-      expect(parsed.mcpServers['nanoclaw-bridge'].args).toContain('/app/bridge/server.ts');
+      expect(parsed.mcpServers['bridge']).toBeDefined();
+      expect(parsed.mcpServers['bridge'].command).toMatch(/bun$/);
+      expect(parsed.mcpServers['bridge'].args).toContain('/app/bridge/server.ts');
     });
 
     test('produces valid JSON', () => {
@@ -68,7 +68,7 @@ describe('interactive-runner', () => {
     test('includes development channels flag', () => {
       const args = buildSpawnArgs({ continueSession: false, extraFlags: [] });
       expect(args).toContain('--dangerously-load-development-channels');
-      expect(args).toContain('server:nanoclaw-bridge');
+      expect(args).toContain('server:bridge');
     });
 
     test('includes dangerously-skip-permissions', () => {

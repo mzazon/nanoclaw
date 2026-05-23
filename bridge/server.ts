@@ -19,7 +19,7 @@ const AGENT_GROUP_ID = process.env.NANOCLAW_AGENT_GROUP_ID;
 const ASSISTANT_NAME = process.env.NANOCLAW_ASSISTANT_NAME;
 
 if (!SESSION_DIR) {
-  process.stderr.write('nanoclaw-bridge: NANOCLAW_SESSION_DIR required\n');
+  process.stderr.write('bridge: NANOCLAW_SESSION_DIR required\n');
   process.exit(1);
 }
 
@@ -31,7 +31,7 @@ let currentInReplyTo: string | null = null;
 let isFirstPoll = true;
 
 const mcp = new Server(
-  { name: 'nanoclaw-bridge', version: '0.0.1' },
+  { name: 'bridge', version: '0.0.1' },
   {
     capabilities: {
       experimental: { 'claude/channel': {} },
@@ -147,7 +147,7 @@ if (import.meta.main) {
   try {
     unresponsivenessState.outboundSeqAtLastCheck = readOutboundMaxSeq(SESSION_DIR);
   } catch (err) {
-    process.stderr.write(`nanoclaw-bridge: failed to read initial outbound max-seq: ${err}\n`);
+    process.stderr.write(`bridge: failed to read initial outbound max-seq: ${err}\n`);
   }
   // Initialize lastOutboundWriteMs to boot time so outboundIdleMs is bounded
   // from boot, not from unix epoch. Otherwise first check after boot sees
@@ -197,7 +197,7 @@ if (import.meta.main) {
                 ts: last.timestamp,
               },
             },
-          }).catch((e) => process.stderr.write(`nanoclaw-bridge: notification send failed: ${e}\n`));
+          }).catch((e) => process.stderr.write(`bridge: notification send failed: ${e}\n`));
           unresponsivenessState.notificationsSent++;
         } else {
           const msg = messages[0];
@@ -214,7 +214,7 @@ if (import.meta.main) {
                 ts: msg.timestamp,
               },
             },
-          }).catch((e) => process.stderr.write(`nanoclaw-bridge: notification send failed: ${e}\n`));
+          }).catch((e) => process.stderr.write(`bridge: notification send failed: ${e}\n`));
           unresponsivenessState.notificationsSent++;
         }
         markCompleted(SESSION_DIR, ids);
@@ -231,10 +231,10 @@ if (import.meta.main) {
         }
         checkUnresponsiveness(unresponsivenessState, currentMaxSeq, Date.now());
       } catch (err) {
-        process.stderr.write(`nanoclaw-bridge: unresponsiveness check failed: ${err}\n`);
+        process.stderr.write(`bridge: unresponsiveness check failed: ${err}\n`);
       }
     } catch (e) {
-      process.stderr.write(`nanoclaw-bridge: poll error: ${e}\n`);
+      process.stderr.write(`bridge: poll error: ${e}\n`);
     }
   }
 
@@ -253,7 +253,7 @@ if (import.meta.main) {
     if (shuttingDown) return;
     shuttingDown = true;
     clearTimeout(pollTimer);
-    process.stderr.write('nanoclaw-bridge: shutting down\n');
+    process.stderr.write('bridge: shutting down\n');
     process.exit(0);
   }
   process.stdin.on('end', shutdown);
@@ -261,7 +261,7 @@ if (import.meta.main) {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
-  process.stderr.write(`nanoclaw-bridge: started (session=${SESSION_DIR})\n`);
+  process.stderr.write(`bridge: started (session=${SESSION_DIR})\n`);
 }
 
 export { mcp };

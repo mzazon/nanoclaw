@@ -6,7 +6,7 @@ import {
   checkUnresponsiveness,
 } from './unresponsiveness';
 
-const TMP = `/tmp/nanoclaw-bridge-unresp-${process.pid}`;
+const TMP = `/tmp/bridge-unresp-${process.pid}`;
 const MARKER = path.join(TMP, '.cc-unresponsive');
 
 beforeEach(() => fs.mkdirSync(TMP, { recursive: true }));

@@ -113,7 +113,7 @@ export function handleSendFile(
 
 export function buildInstructions(sessionDir: string, assistantName?: string): string {
   const sections: string[] = [
-    'Messages arrive as <channel source="nanoclaw-bridge" chat_id="..." message_id="..." user="..." ts="...">.',
+    'Messages arrive as <channel source="bridge" chat_id="..." message_id="..." user="..." ts="...">.',
     'Reply using the reply tool — your transcript output does not reach the sender.',
     'Use send_message with a "to" parameter for cross-destination routing.',
     'Use send_file to attach files to messages.',

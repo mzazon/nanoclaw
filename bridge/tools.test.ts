@@ -174,7 +174,7 @@ describe('bridge/tools', () => {
 
     test('includes channel tag format', () => {
       const inst = buildInstructions(dir);
-      expect(inst).toContain('nanoclaw-bridge');
+      expect(inst).toContain('bridge');
       expect(inst).toContain('reply');
     });
   });
