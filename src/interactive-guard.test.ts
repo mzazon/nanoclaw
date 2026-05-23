@@ -134,7 +134,8 @@ describe('scanPtyBuffer — other modals', () => {
 describe('scanPtyBuffer — ANSI escape sequence handling (real PTY output)', () => {
   test('matches headline interleaved with cursor-positioning codes', () => {
     // Real PTY capture: CC writes each word with absolute column positioning
-    const buf = "You've\x1b[13Ghit\x1b[17Gyour\x1b[22Gweekly\x1b[29Glimit\x1b[35G·\x1b[37Gresets\x1b[44G1pm\x1b[48G(America/New_York)";
+    const buf =
+      "You've\x1b[13Ghit\x1b[17Gyour\x1b[22Gweekly\x1b[29Glimit\x1b[35G·\x1b[37Gresets\x1b[44G1pm\x1b[48G(America/New_York)";
     const r = scanPtyBuffer(buf);
     expect(r.signal).toBe('rate-limit');
     expect(r.limitType).toBe('weekly');

@@ -89,13 +89,15 @@ export async function applyHostPreTaskScripts(
       content = JSON.parse(msg.content);
     } catch {
       try {
-        content = JSON.parse(msg.content.replace(/[\x00-\x1f]/g, (ch) => {
-          const code = ch.charCodeAt(0);
-          if (code === 0x0a) return '\\n';
-          if (code === 0x0d) return '\\r';
-          if (code === 0x09) return '\\t';
-          return `\\u${code.toString(16).padStart(4, '0')}`;
-        }));
+        content = JSON.parse(
+          msg.content.replace(/[\x00-\x1f]/g, (ch) => {
+            const code = ch.charCodeAt(0);
+            if (code === 0x0a) return '\\n';
+            if (code === 0x0d) return '\\r';
+            if (code === 0x09) return '\\t';
+            return `\\u${code.toString(16).padStart(4, '0')}`;
+          }),
+        );
         log.warn('Repaired malformed JSON in task content', { taskId: msg.id });
       } catch {
         keep.push(msg);
