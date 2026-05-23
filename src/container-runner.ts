@@ -96,6 +96,11 @@ export function isContainerRunning(sessionId: string): boolean {
   return activeContainers.has(sessionId);
 }
 
+export function getContainerName(sessionId: string): string | null {
+  const entry = activeContainers.get(sessionId);
+  return entry?.containerName ?? null;
+}
+
 export function getInteractiveEntry(
   sessionId: string,
 ): { ptyBuffer: { data: string }; process: ChildProcess; spawnedAt?: number } | null {
@@ -210,6 +215,90 @@ async function spawnContainer(session: Session): Promise<void> {
     });
     markContainerRunning(session.id);
     attachProcessLifecycle(result.child, session.id, agentGroup.folder, result.pidFile);
+    return;
+  }
+
+  // CC-container runtime: CC in TUI mode inside Docker with tmux + bridge
+  if (containerConfig.runtime === 'cc-container') {
+    const {
+      buildCcContainerMcpJson,
+      buildCcContainerMounts,
+      buildCcContainerEnv,
+      startCcPtyPolling,
+    } = await import('./cc-container-runner.js');
+
+    const { contribution } = resolveProviderContribution(session, agentGroup, containerConfig);
+
+    const sessDir = sessionDir(agentGroup.id, session.id);
+    const mcpJsonPath = path.join(sessDir, '.mcp.json');
+    const additionalMcpServers = containerConfig.mcpServers ?? {};
+    fs.writeFileSync(mcpJsonPath, buildCcContainerMcpJson('/app/bridge/server.ts', additionalMcpServers));
+
+    const mounts = buildCcContainerMounts(agentGroup, session, containerConfig, contribution);
+    const containerName = `cc-${agentGroup.folder}-${Date.now()}`;
+    const agentIdentifier = agentGroup.id;
+
+    await onecli.ensureAgent({ name: agentGroup.name, identifier: agentIdentifier });
+
+    const args: string[] = ['run', '--rm', '--name', containerName, '--label', CONTAINER_INSTALL_LABEL];
+
+    const envPairs = buildCcContainerEnv(agentGroup, containerConfig, contribution);
+    for (const pair of envPairs) {
+      args.push(...pair);
+    }
+
+    const flags = pendingRespawnFlags.get(session.id);
+    pendingRespawnFlags.delete(session.id);
+    if (flags?.noContinue) {
+      args.push('-e', 'NANOCLAW_NO_CONTINUE=1');
+    }
+
+    const onecliApplied = await onecli.applyContainerConfig(args, { addHostMapping: false, agent: agentIdentifier });
+    if (!onecliApplied) {
+      throw new Error('OneCLI gateway not applied — refusing to spawn cc-container without credentials');
+    }
+    log.info('OneCLI gateway applied', { containerName });
+
+    args.push(...hostGatewayArgs());
+
+    const hostUid = process.getuid?.();
+    const hostGid = process.getgid?.();
+    if (hostUid != null && hostUid !== 0 && hostUid !== 1000) {
+      args.push('--user', `${hostUid}:${hostGid}`);
+      args.push('-e', 'HOME=/home/node');
+    }
+
+    for (const mount of mounts) {
+      if (mount.readonly) {
+        args.push(...readonlyMountArgs(mount.hostPath, mount.containerPath));
+      } else {
+        args.push('-v', `${mount.hostPath}:${mount.containerPath}`);
+      }
+    }
+
+    args.push('--entrypoint', '/usr/bin/tini');
+    const imageTag = containerConfig.imageTag || CONTAINER_IMAGE;
+    args.push(imageTag);
+    args.push('--', '/app/cc-entrypoint.sh');
+
+    log.info('Spawning cc-container', { sessionId: session.id, agentGroup: agentGroup.name, containerName });
+    fs.rmSync(heartbeatPath(agentGroup.id, session.id), { force: true });
+
+    const container = spawn(CONTAINER_RUNTIME_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    const ptyBuffer = { data: '' };
+    const ptyPollInterval = startCcPtyPolling(sessDir, ptyBuffer);
+    container.on('exit', () => clearInterval(ptyPollInterval));
+
+    activeContainers.set(session.id, {
+      process: container,
+      containerName,
+      isHostProcess: false,
+      ptyBuffer,
+      spawnedAt: Date.now(),
+    });
+    markContainerRunning(session.id);
+    attachProcessLifecycle(container, session.id, agentGroup.folder);
     return;
   }
 
