@@ -626,7 +626,11 @@ async function processQuery(
           // user gets exactly one notice (the first), not a spam of them.
         } else {
           const cls = classifyError(event);
-          if (cls.kind !== 'unknown') {
+          // Retryable gate: SDK marks transient errors retryable=true and
+          // handles them via internal retry. Only surface notices for terminal
+          // errors (retryable=false) that need user/operator action. Keeps
+          // happy-path Docker container behavior invisible to the user.
+          if (cls.kind !== 'unknown' && event.retryable === false) {
             sendErrorNotice(cls.userMessage, routing);
             errorClassified = true;
           }
