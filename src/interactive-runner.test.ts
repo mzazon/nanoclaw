@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { buildInteractiveEnv, buildMcpJson, resolveClaudeBin, buildSpawnArgs } from './interactive-runner.js';
+import { getLatches, onSessionDestroyed } from './interactive-rate-limit.js';
 
 describe('interactive-runner', () => {
   describe('buildInteractiveEnv', () => {
@@ -114,5 +115,22 @@ describe('interactive-runner', () => {
       expect(args).toContain('--max-turns');
       expect(args).toContain('5');
     });
+  });
+});
+
+describe('child exit triggers onSessionDestroyed', () => {
+  test('after onSessionDestroyed, getLatches returns a fresh entry with rateLimitScheduled null', () => {
+    const latch = getLatches('test-sess-1');
+    const fakeHandle = setTimeout(() => {}, 999_999);
+    latch.rateLimitScheduled = {
+      resetAt: Date.now() + 1000,
+      timeoutHandle: fakeHandle,
+      sessionEpoch: 'test-sess-1:0',
+    };
+
+    onSessionDestroyed('test-sess-1');
+
+    const fresh = getLatches('test-sess-1');
+    expect(fresh.rateLimitScheduled).toBeNull();
   });
 });

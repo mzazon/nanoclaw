@@ -15,6 +15,7 @@ import { GROUPS_DIR, TIMEZONE } from './config.js';
 import type { ContainerConfig } from './container-config.js';
 import { composeGroupClaudeMd } from './claude-md-compose.js';
 import { initGroupFilesystem } from './group-init.js';
+import { onSessionDestroyed } from './interactive-rate-limit.js';
 import { log } from './log.js';
 import { heartbeatPath, sessionDir } from './session-manager.js';
 import type { AgentGroup, Session } from './types.js';
@@ -185,6 +186,12 @@ export async function spawnInteractiveSession(
   }, 2000);
 
   child.on('exit', () => clearInterval(ptyPollInterval));
+
+  // Clear any pending rate-limit timer when the process exits so a stale
+  // timer cannot fire against a future session that reuses the same sessionId.
+  child.on('exit', () => {
+    onSessionDestroyed(session.id);
+  });
 
   // Auto-accept the development channels confirmation prompt.
   // CC always shows this when --dangerously-load-development-channels is used.
