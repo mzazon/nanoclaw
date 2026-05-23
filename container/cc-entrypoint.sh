@@ -40,6 +40,26 @@ if [ -n "${NANOCLAW_MODEL:-}" ]; then
   CLAUDE_ARGS="$CLAUDE_ARGS --model $NANOCLAW_MODEL"
 fi
 
+# ---- Picker denial hook ----
+HOOKS_DIR="${CLAUDE_DIR}/hooks"
+mkdir -p "$HOOKS_DIR"
+if [ -f /app/cc-hooks/pretool-deny-picker.sh ]; then
+  cp /app/cc-hooks/pretool-deny-picker.sh "$HOOKS_DIR/"
+  chmod +x "$HOOKS_DIR/pretool-deny-picker.sh"
+fi
+cat > "$CLAUDE_DIR/settings.json" <<'SETTINGS'
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion|ExitPlanMode",
+        "command": "~/.claude/hooks/pretool-deny-picker.sh $TOOL_NAME"
+      }
+    ]
+  }
+}
+SETTINGS
+
 # ---- PTY output file ----
 PTY_OUTPUT="${SESSION_DIR}/.pty-output"
 : > "$PTY_OUTPUT"
