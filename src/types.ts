@@ -25,7 +25,7 @@ export interface ContainerConfigRow {
   packages_npm: string; // JSON: string[]
   additional_mounts: string; // JSON: AdditionalMountConfig[]
   cli_scope: string; // 'disabled' | 'group' | 'global'
-  runtime: string; // 'docker' | 'host' — LOCAL-010
+  runtime: string; // 'docker' | 'host' | 'interactive' | 'cc-container' — LOCAL-010, LOCAL-015
   host_home: number; // 0 | 1 — LOCAL-010
   host_plugins: string; // JSON: string[] — LOCAL-010
   host_symlinks: string; // JSON: string[] — LOCAL-010

@@ -37,6 +37,10 @@ function isHostRuntime(runtime: string | undefined | null): boolean {
   return runtime === 'interactive' || runtime === 'host';
 }
 
+function isCcContainer(runtime: string | undefined | null): boolean {
+  return runtime === 'cc-container';
+}
+
 const COMPOSED_HEADER = '<!-- Composed at spawn — do not edit. Edit CLAUDE.local.md for per-group content. -->';
 
 /**
@@ -113,6 +117,47 @@ export function composeGroupClaudeMd(group: AgentGroup): void {
         content: mcp.instructions,
       });
     }
+  }
+
+  // CC-container: inline all content into a single file (no @./ imports)
+  if (isCcContainer(configRow?.runtime)) {
+    const sections: string[] = [COMPOSED_HEADER];
+    const sharedPath = path.join(projectRoot, 'container', 'CLAUDE.md');
+    if (fs.existsSync(sharedPath)) {
+      sections.push(fs.readFileSync(sharedPath, 'utf-8').trim());
+    }
+    for (const [, frag] of [...desired].sort(([a], [b]) => a.localeCompare(b))) {
+      let content: string;
+      if (frag.type === 'symlink') {
+        const hostPath = resolveContainerPathToHost(frag.content, projectRoot);
+        if (hostPath && fs.existsSync(hostPath)) {
+          content = fs.readFileSync(hostPath, 'utf-8').trim();
+        } else if (fs.existsSync(frag.content)) {
+          content = fs.readFileSync(frag.content, 'utf-8').trim();
+        } else {
+          continue;
+        }
+      } else {
+        content = frag.content.trim();
+      }
+      if (content) sections.push(content);
+    }
+    const localFile = path.join(groupDir, 'CLAUDE.local.md');
+    if (!fs.existsSync(localFile)) {
+      fs.writeFileSync(localFile, '');
+    }
+    const localContent = fs.readFileSync(localFile, 'utf-8').trim();
+    if (localContent) sections.push(localContent);
+    writeAtomic(path.join(groupDir, 'CLAUDE.md'), sections.join('\n\n---\n\n') + '\n');
+    if (fs.existsSync(fragmentsDir)) {
+      fs.rmSync(fragmentsDir, { recursive: true, force: true });
+    }
+    try {
+      fs.unlinkSync(sharedLink);
+    } catch {
+      /* already gone */
+    }
+    return;
   }
 
   // Reconcile: drop stale, write desired.
@@ -196,6 +241,26 @@ export function migrateGroupsToClaudeLocal(): void {
   if (actions.length > 0) {
     log.info('Migrated groups to CLAUDE.local.md model', { actions });
   }
+}
+
+function resolveContainerPathToHost(containerPath: string, projectRoot: string): string | null {
+  if (containerPath.startsWith('/app/skills/')) {
+    return path.join(projectRoot, 'container', 'skills', containerPath.slice('/app/skills/'.length));
+  }
+  if (containerPath.startsWith('/app/src/mcp-tools/')) {
+    return path.join(
+      projectRoot,
+      'container',
+      'agent-runner',
+      'src',
+      'mcp-tools',
+      containerPath.slice('/app/src/mcp-tools/'.length),
+    );
+  }
+  if (containerPath === '/app/CLAUDE.md') {
+    return path.join(projectRoot, 'container', 'CLAUDE.md');
+  }
+  return null;
 }
 
 function syncSymlink(linkPath: string, target: string): void {
