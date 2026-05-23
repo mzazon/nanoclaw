@@ -9,18 +9,30 @@
  */
 import { getDb, hasTable } from './db/connection.js';
 
-export type GateResult = { action: 'pass' } | { action: 'filter' } | { action: 'deny'; command: string };
+// LOCAL-016: CC slash command passthrough via keystroke injection.
+export type GateResult =
+  | { action: 'pass' }
+  | { action: 'filter' }
+  | { action: 'deny'; command: string }
+  | { action: 'inject'; command: string };
 
 const FILTERED_COMMANDS = new Set(['/help', '/login', '/logout', '/doctor', '/config', '/remote-control']);
 const ADMIN_COMMANDS = new Set(['/clear', '/compact', '/context', '/cost', '/files']);
+const CC_CLI_COMMANDS = new Set(['/compact', '/context', '/clear', '/cost', '/model', '/status', '/memory', '/exit']);
+const CC_CLI_TAKES_ARG = new Set(['/model', '/context']);
 
 /**
  * Classify a message and decide whether it should reach the container.
  * Returns 'pass' for normal messages and authorized admin commands,
  * 'filter' for silently-dropped commands, 'deny' for unauthorized
- * admin commands.
+ * admin commands, 'inject' for CC CLI commands on interactive runtimes.
  */
-export function gateCommand(content: string, userId: string | null, agentGroupId: string): GateResult {
+export function gateCommand(
+  content: string,
+  userId: string | null,
+  agentGroupId: string,
+  runtime?: string | null,
+): GateResult {
   let text: string;
   try {
     const parsed = JSON.parse(content);
@@ -34,6 +46,20 @@ export function gateCommand(content: string, userId: string | null, agentGroupId
   const command = text.split(/\s/)[0].toLowerCase();
 
   if (FILTERED_COMMANDS.has(command)) return { action: 'filter' };
+
+  // LOCAL-016: On interactive/cc-container runtimes, CC CLI commands are
+  // injected as keystrokes rather than delivered as chat messages.
+  // Only pass through command + first arg for commands that take one;
+  // strips platform noise like "Sent using Claude" appended by connectors.
+  const isInteractive = runtime === 'interactive' || runtime === 'cc-container';
+  if (isInteractive && CC_CLI_COMMANDS.has(command)) {
+    if (!isAdmin(userId, agentGroupId)) {
+      return { action: 'deny', command };
+    }
+    const parts = text.split(/\s+/);
+    const cleanCommand = CC_CLI_TAKES_ARG.has(command) && parts.length > 1 ? `${parts[0]} ${parts[1]}` : parts[0];
+    return { action: 'inject', command: cleanCommand };
+  }
 
   if (ADMIN_COMMANDS.has(command)) {
     if (isAdmin(userId, agentGroupId)) {

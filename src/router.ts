@@ -30,13 +30,38 @@ import { findSessionForAgent } from './db/sessions.js';
 import { startTypingRefresh, stopTypingRefresh } from './modules/typing/index.js';
 import { log } from './log.js';
 import { resolveSession, writeSessionMessage, writeOutboundDirect } from './session-manager.js';
-import { wakeContainer } from './container-runner.js';
+import { wakeContainer, getInteractiveEntry, getContainerName } from './container-runner.js';
 import { getSession } from './db/sessions.js';
+import { getContainerConfig } from './db/container-configs.js';
 import type { AgentGroup, MessagingGroup, MessagingGroupAgent } from './types.js';
 import type { InboundEvent } from './channels/adapter.js';
 
 function generateId(): string {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// LOCAL-016: Inject a CC CLI slash command as keystrokes into the running session.
+function injectSlashCommand(sessionId: string, command: string): void {
+  const entry = getInteractiveEntry(sessionId);
+  if (!entry) {
+    log.warn('Slash command inject: no active interactive session', { sessionId, command });
+    return;
+  }
+
+  const containerName = getContainerName(sessionId);
+  const isCcContainer = !!containerName && !entry.process.stdin;
+
+  if (isCcContainer) {
+    try {
+      const { sendCcContainerKeystroke } = require('./cc-container-runner.js');
+      sendCcContainerKeystroke(containerName, command);
+      sendCcContainerKeystroke(containerName, '\r');
+    } catch (err) {
+      log.warn('Slash command inject via tmux failed', { sessionId, command, err });
+    }
+  } else if (entry.process.stdin) {
+    entry.process.stdin.write(`${command}\n`);
+  }
 }
 
 /**
@@ -433,8 +458,10 @@ async function deliverToAgent(
   // Command gate: classify slash commands before they reach the container.
   // Filtered commands are dropped silently. Denied admin commands get a
   // permission-denied response written directly to messages_out.
+  // LOCAL-016: CC CLI commands are injected as keystrokes on interactive runtimes.
   if (event.message.kind === 'chat' || event.message.kind === 'chat-sdk') {
-    const gate = gateCommand(event.message.content, userId, agent.agent_group_id);
+    const containerConfig = getContainerConfig(agent.agent_group_id);
+    const gate = gateCommand(event.message.content, userId, agent.agent_group_id, containerConfig?.runtime);
     if (gate.action === 'filter') {
       log.debug('Filtered command dropped by gate', { agentGroupId: agent.agent_group_id });
       return;
@@ -449,6 +476,11 @@ async function deliverToAgent(
         content: JSON.stringify({ text: `Permission denied: ${gate.command} requires admin access.` }),
       });
       log.info('Admin command denied by gate', { command: gate.command, userId, agentGroupId: agent.agent_group_id });
+      return;
+    }
+    if (gate.action === 'inject') {
+      injectSlashCommand(session.id, gate.command);
+      log.info('Slash command injected', { command: gate.command, sessionId: session.id });
       return;
     }
   }
