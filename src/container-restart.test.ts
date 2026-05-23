@@ -7,12 +7,17 @@ vi.mock('./log.js', () => ({
 }));
 
 const mockIsContainerRunning = vi.fn<(id: string) => boolean>();
-const mockKillContainer = vi.fn<(id: string, reason: string, onExit?: () => void) => void>();
+const mockKillContainer = vi.fn<(id: string, reason: string, respawnFlags?: object, onExit?: () => void) => void>();
 const mockWakeContainer = vi.fn();
 vi.mock('./container-runner.js', () => ({
   isContainerRunning: (...args: unknown[]) => mockIsContainerRunning(args[0] as string),
   killContainer: (...args: unknown[]) =>
-    mockKillContainer(args[0] as string, args[1] as string, args[2] as (() => void) | undefined),
+    mockKillContainer(
+      args[0] as string,
+      args[1] as string,
+      args[2] as object | undefined,
+      args[3] as (() => void) | undefined,
+    ),
   wakeContainer: (...args: unknown[]) => mockWakeContainer(...args),
 }));
 
@@ -72,7 +77,7 @@ describe('restartAgentGroupContainers', () => {
 
     expect(count).toBe(1);
     expect(mockKillContainer).toHaveBeenCalledTimes(1);
-    expect(mockKillContainer).toHaveBeenCalledWith('s1', 'test', undefined);
+    expect(mockKillContainer).toHaveBeenCalledWith('s1', 'test', undefined, undefined);
   });
 
   it('does not write wake message when wakeMessage is omitted', () => {
@@ -82,7 +87,7 @@ describe('restartAgentGroupContainers', () => {
     restartAgentGroupContainers('g1', 'test');
 
     expect(mockWriteSessionMessage).not.toHaveBeenCalled();
-    expect(mockKillContainer).toHaveBeenCalledWith('s1', 'test', undefined);
+    expect(mockKillContainer).toHaveBeenCalledWith('s1', 'test', undefined, undefined);
   });
 
   it('writes on_wake message and passes onExit callback when wakeMessage is provided', () => {
@@ -101,7 +106,7 @@ describe('restartAgentGroupContainers', () => {
 
     // Should pass an onExit callback to killContainer
     expect(mockKillContainer).toHaveBeenCalledTimes(1);
-    const onExit = mockKillContainer.mock.calls[0][2];
+    const onExit = mockKillContainer.mock.calls[0][3];
     expect(typeof onExit).toBe('function');
   });
 
@@ -114,7 +119,7 @@ describe('restartAgentGroupContainers', () => {
     restartAgentGroupContainers('g1', 'test', 'Resuming.');
 
     // Simulate container exit by calling the onExit callback
-    const onExit = mockKillContainer.mock.calls[0][2] as () => void;
+    const onExit = mockKillContainer.mock.calls[0][3] as () => void;
     onExit();
 
     expect(mockGetSession).toHaveBeenCalledWith('s1');
@@ -128,7 +133,7 @@ describe('restartAgentGroupContainers', () => {
 
     restartAgentGroupContainers('g1', 'test', 'Resuming.');
 
-    const onExit = mockKillContainer.mock.calls[0][2] as () => void;
+    const onExit = mockKillContainer.mock.calls[0][3] as () => void;
     onExit();
 
     expect(mockWakeContainer).not.toHaveBeenCalled();

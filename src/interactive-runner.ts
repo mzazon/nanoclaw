@@ -21,6 +21,10 @@ import type { AgentGroup, Session } from './types.js';
 
 const PTY_BUFFER_SIZE = 4096;
 
+export interface RespawnFlags {
+  noContinue?: boolean;
+}
+
 export interface InteractiveSpawnResult {
   child: ChildProcess;
   name: string;
@@ -100,6 +104,7 @@ export async function spawnInteractiveSession(
   session: Session,
   agentGroup: AgentGroup,
   containerConfig: ContainerConfig,
+  opts?: RespawnFlags,
 ): Promise<InteractiveSpawnResult> {
   const projectRoot = process.cwd();
   const sessDir = sessionDir(agentGroup.id, session.id);
@@ -129,7 +134,7 @@ export async function spawnInteractiveSession(
   const claudeBin = resolveClaudeBin();
   const claudeArgs = buildSpawnArgs({
     model: containerConfig.model,
-    continueSession: true,
+    continueSession: !opts?.noContinue,
     extraFlags: [],
     groupDir,
     mcpConfigPath: mcpJsonPath,

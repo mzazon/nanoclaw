@@ -93,6 +93,7 @@ registerResource({
           killContainer(
             ctx.sessionId,
             'restarted via ncl',
+            undefined,
             message
               ? () => {
                   const s = getSession(ctx.sessionId);

@@ -43,6 +43,7 @@ export function restartAgentGroupContainers(agentGroupId: string, reason: string
     killContainer(
       session.id,
       reason,
+      undefined,
       wakeMessage
         ? () => {
             const s = getSession(session.id);

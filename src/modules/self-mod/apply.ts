@@ -69,7 +69,7 @@ export const applyInstallPackages: ApprovalHandler = async ({ session, payload, 
       }),
       onWake: 1,
     });
-    killContainer(session.id, 'rebuild applied', () => {
+    killContainer(session.id, 'rebuild applied', undefined, () => {
       const s = getSession(session.id);
       if (s) wakeContainer(s);
     });
@@ -118,7 +118,7 @@ export const applyAddMcpServer: ApprovalHandler = async ({ session, payload, use
     }),
     onWake: 1,
   });
-  killContainer(session.id, 'mcp server added', () => {
+  killContainer(session.id, 'mcp server added', undefined, () => {
     const s = getSession(session.id);
     if (s) wakeContainer(s);
   });

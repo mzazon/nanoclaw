@@ -44,10 +44,12 @@ import {
   heartbeatPath,
   markContainerRunning,
   markContainerStopped,
+  openOutboundDbRw,
   sessionDir,
   writeSessionRouting,
 } from './session-manager.js';
 import type { AgentGroup, Session } from './types.js';
+import type { RespawnFlags } from './interactive-runner.js';
 
 export { cleanupHostOrphans };
 
@@ -64,6 +66,9 @@ interface ActiveEntry {
 
 /** Active containers tracked by session ID. */
 const activeContainers = new Map<string, ActiveEntry>();
+
+/** Pending respawn flags set by killContainer, consumed by spawnContainer on next wake. */
+const pendingRespawnFlags = new Map<string, RespawnFlags>();
 
 /** Snapshot of active container entries for the dashboard pusher. */
 export function getActiveContainerEntries(): Array<{ sessionId: string; containerName: string }> {
@@ -141,6 +146,26 @@ async function spawnContainer(session: Session): Promise<void> {
     return;
   }
 
+  // fresh_context='always': clear continuation before cold wake so the
+  // agent starts a blank conversation. Must run before spawn — the sweep
+  // path covers timer-woken sessions but direct wakes (a2a, router) bypass it.
+  const configRow = getContainerConfig(session.agent_group_id);
+  if (configRow?.fresh_context === 'always') {
+    try {
+      const outDb = openOutboundDbRw(session.agent_group_id, session.id);
+      try {
+        const result = outDb.prepare("DELETE FROM session_state WHERE key LIKE 'continuation:%'").run();
+        if (result.changes > 0) {
+          log.info('Cleared continuation for fresh start', { sessionId: session.id, reason: 'fresh-context-always' });
+        }
+      } finally {
+        outDb.close();
+      }
+    } catch {
+      // outbound.db may not exist yet on first spawn
+    }
+  }
+
   // Refresh the destination map and default reply routing so any admin
   // changes take effect on wake. Destinations come from the agent-to-agent
   // module — skip when the module isn't installed (table absent).
@@ -172,7 +197,9 @@ async function spawnContainer(session: Session): Promise<void> {
   // Interactive runtime: CC in TUI mode with channel plugin bridge
   if (containerConfig.runtime === 'interactive') {
     const { spawnInteractiveSession } = await import('./interactive-runner.js');
-    const result = await spawnInteractiveSession(session, agentGroup, containerConfig);
+    const flags = pendingRespawnFlags.get(session.id);
+    pendingRespawnFlags.delete(session.id);
+    const result = await spawnInteractiveSession(session, agentGroup, containerConfig, flags);
     activeContainers.set(session.id, {
       process: result.child,
       containerName: result.name,
@@ -258,15 +285,24 @@ function attachProcessLifecycle(child: ChildProcess, sessionId: string, groupFol
 }
 
 /** Kill a container for a session. */
-export function killContainer(sessionId: string, reason: string, onExit?: () => void): void {
+export function killContainer(
+  sessionId: string,
+  reason: string,
+  respawnFlags?: RespawnFlags,
+  onExit?: () => void,
+): void {
   const entry = activeContainers.get(sessionId);
   if (!entry) return;
+
+  if (respawnFlags) {
+    pendingRespawnFlags.set(sessionId, respawnFlags);
+  }
 
   if (onExit) {
     entry.process.once('close', onExit);
   }
 
-  log.info('Killing container', { sessionId, reason, containerName: entry.containerName });
+  log.info('Killing container', { sessionId, reason, containerName: entry.containerName, respawnFlags });
   if (entry.isHostProcess) {
     entry.process.kill('SIGTERM');
     return;
