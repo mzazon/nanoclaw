@@ -198,8 +198,8 @@ async function spawnContainer(session: Session): Promise<void> {
   if (containerConfig.runtime === 'interactive') {
     const { spawnInteractiveSession } = await import('./interactive-runner.js');
     const flags = pendingRespawnFlags.get(session.id);
-    pendingRespawnFlags.delete(session.id);
     const result = await spawnInteractiveSession(session, agentGroup, containerConfig, flags);
+    pendingRespawnFlags.delete(session.id);  // only clear on success
     activeContainers.set(session.id, {
       process: result.child,
       containerName: result.name,
@@ -294,6 +294,7 @@ export function killContainer(
   const entry = activeContainers.get(sessionId);
   if (!entry) return;
 
+  // Last write wins; intentional — guard is the only flag producer, so concurrent flag writes are not expected.
   if (respawnFlags) {
     pendingRespawnFlags.set(sessionId, respawnFlags);
   }
