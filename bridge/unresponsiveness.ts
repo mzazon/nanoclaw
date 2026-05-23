@@ -1,3 +1,4 @@
+// LOCAL-012: Bridge unresponsiveness detector with atomic marker write.
 import fs from 'fs';
 
 const CHECK_INTERVAL_MS = 60_000;

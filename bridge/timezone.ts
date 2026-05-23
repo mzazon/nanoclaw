@@ -1,3 +1,4 @@
+// LOCAL-012: Bridge timezone utility (separate from container/host copies).
 function isValidTimezone(tz: string): boolean {
   try {
     Intl.DateTimeFormat(undefined, { timeZone: tz });

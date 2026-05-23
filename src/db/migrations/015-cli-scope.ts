@@ -1,3 +1,4 @@
+// LOCAL-014: Per-group CLI scope column.
 import type Database from 'better-sqlite3';
 import type { Migration } from './index.js';
 

@@ -1,5 +1,5 @@
 /**
- * One-time backfill: seed `container_configs` rows from existing
+ * One-time backfill — LOCAL-014. Seed `container_configs` rows from existing
  * `groups/<folder>/container.json` files and `agent_groups.agent_provider`.
  *
  * Runs after migrations, before channel adapters start. Idempotent — skips

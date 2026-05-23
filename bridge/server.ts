@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+// LOCAL-012: Bridge MCP server — channel plugin for interactive runtime.
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';

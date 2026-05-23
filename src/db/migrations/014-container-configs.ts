@@ -1,3 +1,4 @@
+// LOCAL-014: Container config DB migration.
 import type Database from 'better-sqlite3';
 import type { Migration } from './index.js';
 

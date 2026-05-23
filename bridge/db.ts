@@ -1,3 +1,4 @@
+// LOCAL-012: Bridge DB helpers for session inbound/outbound access.
 import { Database } from 'bun:sqlite';
 import { writeFileSync } from 'fs';
 

@@ -1,3 +1,4 @@
+// LOCAL-012: Interactive rate-limit recovery — reset-time parser + session latches.
 export interface ResetSpec {
   weekday?: 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat' | 'Sun';
   time: string;

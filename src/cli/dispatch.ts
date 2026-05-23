@@ -38,7 +38,7 @@ export async function dispatch(req: RequestFrame, ctx: CallerContext): Promise<R
     return err(req.id, 'unknown-command', `no command "${req.command}"`);
   }
 
-  // CLI scope enforcement for agent callers
+  // LOCAL-014: CLI scope enforcement for agent callers
   if (ctx.caller === 'agent') {
     const configRow = getContainerConfig(ctx.agentGroupId);
     const cliScope = configRow?.cli_scope ?? 'group';

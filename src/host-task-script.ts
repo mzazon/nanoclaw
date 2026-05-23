@@ -1,3 +1,4 @@
+// LOCAL-012: Host-side pre-task script runner for interactive sessions.
 import { execFile } from 'child_process';
 import fs from 'fs';
 import path from 'path';

@@ -1,3 +1,4 @@
+// LOCAL-012: Bridge NCL tool with async request/response correlation.
 import { Database } from 'bun:sqlite';
 import { join } from 'path';
 import { writeMessageOut } from './db.ts';

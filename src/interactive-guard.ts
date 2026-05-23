@@ -1,6 +1,5 @@
 /**
- * Interactive session lifecycle guard — integrated into host-sweep.
- *
+ * Interactive session lifecycle guard — LOCAL-012.
  * Scans the PTY output buffer for known modals (rate-limit, auth, context,
  * policy, etc.) and decides whether to send a keystroke, kill, or kill-respawn.
  */

@@ -1,5 +1,5 @@
 /**
- * Helper to restart all running containers for an agent group.
+ * Helper to restart all running containers for an agent group — LOCAL-013.
  *
  * Writes an on_wake message to each session, kills the container, then
  * wakes a fresh container via the onExit callback — race-free.

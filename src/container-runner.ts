@@ -146,7 +146,7 @@ async function spawnContainer(session: Session): Promise<void> {
     return;
   }
 
-  // fresh_context='always': clear continuation before cold wake so the
+  // LOCAL-013: fresh_context='always' — clear continuation before cold wake so the
   // agent starts a blank conversation. Must run before spawn — the sweep
   // path covers timer-woken sessions but direct wakes (a2a, router) bypass it.
   const configRow = getContainerConfig(session.agent_group_id);

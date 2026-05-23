@@ -1,10 +1,7 @@
 /**
- * Interactive-session runner — spawns Claude Code in interactive TUI mode
- * with the nanoclaw-bridge channel plugin for session DB I/O.
- *
- * Uses the `script` command for PTY allocation (no native node-pty dep).
- * The bridge plugin handles all message routing; the agent-runner is
- * not involved.
+ * Interactive-session runner — LOCAL-012.
+ * Spawns Claude Code in interactive TUI mode with the nanoclaw-bridge
+ * channel plugin for session DB I/O. Uses `script` for PTY allocation.
  */
 import { type ChildProcess, spawn } from 'child_process';
 import fs from 'fs';
