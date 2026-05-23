@@ -23,6 +23,8 @@ if (!SESSION_DIR) {
   process.exit(1);
 }
 
+const SCHEDULING_ENABLED = process.env.NANOCLAW_BRIDGE_SCHEDULING !== '0';
+const NCL_ENABLED = process.env.NANOCLAW_BRIDGE_NCL !== '0';
 const HEARTBEAT_PATH = join(SESSION_DIR, '.heartbeat');
 const UNRESPONSIVE_MARKER_PATH = join(SESSION_DIR, '.cc-unresponsive');
 const POLL_INTERVAL_MS = 1000;
@@ -84,8 +86,8 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['path'],
       },
     },
-    ...SCHEDULING_TOOLS,
-    NCL_TOOL,
+    ...(SCHEDULING_ENABLED ? SCHEDULING_TOOLS : []),
+    ...(NCL_ENABLED ? [NCL_TOOL] : []),
   ],
 }));
 
@@ -133,8 +135,16 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
       return handleResumeTask(SESSION_DIR, args);
     case 'ncl':
       return handleNcl(SESSION_DIR, args);
-    default:
+    default: {
+      const schedulingNames = ['schedule_task', 'list_tasks', 'cancel_task', 'update_task', 'pause_task', 'resume_task'];
+      if (schedulingNames.includes(req.params.name) && !SCHEDULING_ENABLED) {
+        return { content: [{ type: 'text', text: 'Scheduling tools are not enabled in this session.' }], isError: true };
+      }
+      if (req.params.name === 'ncl' && !NCL_ENABLED) {
+        return { content: [{ type: 'text', text: 'CLI tools are not enabled in this session.' }], isError: true };
+      }
       return { content: [{ type: 'text', text: `unknown tool: ${req.params.name}` }], isError: true };
+    }
   }
 });
 

@@ -177,5 +177,22 @@ describe('bridge/tools', () => {
       expect(inst).toContain('bridge');
       expect(inst).toContain('reply');
     });
+
+    test('omits scheduling/ncl instructions when env flags disable them', () => {
+      const origSched = process.env.NANOCLAW_BRIDGE_SCHEDULING;
+      const origNcl = process.env.NANOCLAW_BRIDGE_NCL;
+      try {
+        process.env.NANOCLAW_BRIDGE_SCHEDULING = '0';
+        process.env.NANOCLAW_BRIDGE_NCL = '0';
+        const inst = buildInstructions(dir);
+        expect(inst).not.toContain('scheduling');
+        expect(inst).not.toContain('ncl');
+      } finally {
+        if (origSched === undefined) delete process.env.NANOCLAW_BRIDGE_SCHEDULING;
+        else process.env.NANOCLAW_BRIDGE_SCHEDULING = origSched;
+        if (origNcl === undefined) delete process.env.NANOCLAW_BRIDGE_NCL;
+        else process.env.NANOCLAW_BRIDGE_NCL = origNcl;
+      }
+    });
   });
 });
