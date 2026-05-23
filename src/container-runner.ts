@@ -220,12 +220,8 @@ async function spawnContainer(session: Session): Promise<void> {
 
   // CC-container runtime: CC in TUI mode inside Docker with tmux + bridge
   if (containerConfig.runtime === 'cc-container') {
-    const {
-      buildCcContainerMcpJson,
-      buildCcContainerMounts,
-      buildCcContainerEnv,
-      startCcPtyPolling,
-    } = await import('./cc-container-runner.js');
+    const { buildCcContainerMcpJson, buildCcContainerMounts, buildCcContainerEnv, startCcPtyPolling } =
+      await import('./cc-container-runner.js');
 
     const { contribution } = resolveProviderContribution(session, agentGroup, containerConfig);
 

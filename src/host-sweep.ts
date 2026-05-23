@@ -59,11 +59,15 @@ import {
   sessionDir,
   writeOutboundDirect,
 } from './session-manager.js';
-import { isContainerRunning, killContainer, wakeContainer, getInteractiveEntry } from './container-runner.js';
+import { isContainerRunning, killContainer, wakeContainer, getInteractiveEntry, getContainerName } from './container-runner.js';
 import type { ContainerConfigRow, Session } from './types.js';
 
 function parseFreshContext(config: ContainerConfigRow): string | null {
   return config.fresh_context ?? null;
+}
+
+function isInteractiveRuntime(runtime: string | undefined | null): boolean {
+  return runtime === 'interactive' || runtime === 'cc-container';
 }
 
 /**
@@ -271,7 +275,7 @@ async function sweepSession(session: Session): Promise<void> {
       if (!clearContinuationIfFreshContext(freshContext, agentGroup.id, session.id)) {
         clearContinuationForRecurringTasks(inDb, agentGroup.id, session.id);
       }
-      if (configRow?.runtime === 'interactive') {
+      if (isInteractiveRuntime(configRow?.runtime)) {
         const dueRows = inDb
           .prepare(
             `SELECT * FROM messages_in
@@ -296,7 +300,7 @@ async function sweepSession(session: Session): Promise<void> {
 
     // 2a. Script gate for running interactive sessions. The bridge filters out
     // script-gated tasks, so they sit pending until the sweep evaluates them.
-    if (alive && getContainerConfig(agentGroup.id)?.runtime === 'interactive') {
+    if (alive && isInteractiveRuntime(getContainerConfig(agentGroup.id)?.runtime)) {
       const scriptTasks = inDb
         .prepare(
           `SELECT * FROM messages_in
@@ -399,10 +403,24 @@ async function sweepSession(session: Session): Promise<void> {
           }
         };
 
+        const containerName = getContainerName(session.id);
+        const isCcContainerSession = !!containerName && !interactiveEntry.process.stdin;
+
         executeAction(action, scan, latch, {
           sessionId: session.id,
           sessionEpoch,
-          ptyWrite: (data: string) => interactiveEntry.process.stdin?.write(data),
+          ptyWrite: (data: string) => {
+            if (isCcContainerSession && containerName) {
+              try {
+                const { sendCcContainerKeystroke } = require('./cc-container-runner.js');
+                sendCcContainerKeystroke(containerName, data);
+              } catch (err) {
+                log.warn('cc-container keystroke failed', { sessionId: session.id, err });
+              }
+            } else {
+              interactiveEntry.process.stdin?.write(data);
+            }
+          },
           killProcess: killWithFlags,
           notify,
           // LIVE LOOKUP — captures the active map, NOT a stale entry. The
