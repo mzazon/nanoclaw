@@ -140,6 +140,9 @@ export function buildCcContainerEnv(
   envPairs.push(['-e', 'NANOCLAW_BRIDGE_SCHEDULING=0']);
   envPairs.push(['-e', 'NANOCLAW_BRIDGE_NCL=0']);
 
+  const compactPct = containerConfig.model?.includes('opus') ? '50' : '80';
+  envPairs.push(['-e', `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=${compactPct}`]);
+
   if (providerContribution.env) {
     for (const [key, value] of Object.entries(providerContribution.env)) {
       envPairs.push(['-e', `${key}=${value}`]);
@@ -175,4 +178,54 @@ export function sendCcContainerKeystroke(containerName: string, key: string): vo
     stdio: 'pipe',
     timeout: 5000,
   });
+}
+
+function isIdle(ptyBuffer: { data: string }): boolean {
+  const tail = ptyBuffer.data.slice(-200);
+  return /[❯>]\s*$/.test(tail);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function injectCcCommand(
+  containerName: string,
+  command: string,
+  ptyBuffer: { data: string },
+  opts?: { timeoutMs?: number; pollMs?: number; delayMs?: number },
+): Promise<boolean> {
+  const { timeoutMs = 30_000, pollMs = 500, delayMs = 500 } = opts ?? {};
+  let sentAtIdle = true;
+
+  if (!isIdle(ptyBuffer)) {
+    const deadline = Date.now() + timeoutMs;
+    sentAtIdle = false;
+    while (Date.now() < deadline) {
+      await sleep(pollMs);
+      if (isIdle(ptyBuffer)) {
+        sentAtIdle = true;
+        break;
+      }
+    }
+    if (!sentAtIdle) {
+      const { log } = await import('./log.js');
+      log.warn('injectCcCommand: timed out waiting for idle prompt, sending anyway', {
+        containerName,
+        command,
+      });
+    }
+  }
+
+  execSync(
+    `${CONTAINER_RUNTIME_BIN} exec ${containerName} tmux send-keys -t cc -- ${JSON.stringify(command)}`,
+    { stdio: 'pipe', timeout: 5000 },
+  );
+  await sleep(delayMs);
+  execSync(`${CONTAINER_RUNTIME_BIN} exec ${containerName} tmux send-keys -t cc Enter`, {
+    stdio: 'pipe',
+    timeout: 5000,
+  });
+
+  return sentAtIdle;
 }

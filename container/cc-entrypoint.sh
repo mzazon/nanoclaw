@@ -8,20 +8,27 @@ set -euo pipefail
 SESSION_DIR="${NANOCLAW_SESSION_DIR:-/workspaces/.nanoclaw}"
 PROJECT_DIR="/workspaces/project"
 
+# ---- Resolve Claude binary + version ----
+CLAUDE_BIN="$(command -v claude)"
+CC_VERSION="$("$CLAUDE_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo '2.1.128')"
+CC_VERSION="${CC_VERSION:-2.1.128}"
+
 # ---- Onboarding bypass ----
 # Pre-populate .claude.json to skip ALL interactive prompts: theme picker,
 # trust dialog, hooks trust, onboarding, cost threshold, effort callout.
 # Written to three locations — CC checks different paths across versions.
 # GrowthBook flags cached so CC doesn't need network to evaluate them.
 # Dev-channels prompt has no config bypass — fallback loop handles it.
+# lastOnboardingVersion is set dynamically to prevent CC version bumps
+# from re-triggering onboarding prompts (hermit pattern).
 CLAUDE_DIR="${HOME}/.claude"
 mkdir -p "$CLAUDE_DIR"
 CC_CONFIG='{
   "hasCompletedOnboarding": true,
   "numStartups": 10,
   "installMethod": "native",
-  "lastOnboardingVersion": "2.1.128",
-  "lastReleaseNotesSeen": "2.1.128",
+  "lastOnboardingVersion": "'"$CC_VERSION"'",
+  "lastReleaseNotesSeen": "'"$CC_VERSION"'",
   "migrationVersion": 13,
   "opusProMigrationComplete": true,
   "sonnet1m45MigrationComplete": true,
@@ -71,7 +78,6 @@ git config --global --add safe.directory "$PROJECT_DIR"
 git config --global --add safe.directory "${PROJECT_DIR}/agent" 2>/dev/null || true
 
 # ---- Build Claude Code command ----
-CLAUDE_BIN="$(command -v claude)"
 CLAUDE_ARGS="--dangerously-skip-permissions"
 CLAUDE_ARGS="$CLAUDE_ARGS --dangerously-load-development-channels server:bridge"
 

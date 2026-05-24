@@ -41,7 +41,7 @@ function generateId(): string {
 }
 
 // LOCAL-016: Inject a CC CLI slash command as keystrokes into the running session.
-function injectSlashCommand(sessionId: string, command: string): void {
+async function injectSlashCommand(sessionId: string, command: string): Promise<void> {
   const entry = getInteractiveEntry(sessionId);
   if (!entry) {
     log.warn('Slash command inject: no active interactive session', { sessionId, command });
@@ -53,9 +53,8 @@ function injectSlashCommand(sessionId: string, command: string): void {
 
   if (isCcContainer) {
     try {
-      const { sendCcContainerKeystroke } = require('./cc-container-runner.js');
-      sendCcContainerKeystroke(containerName, command);
-      sendCcContainerKeystroke(containerName, '\r');
+      const { injectCcCommand } = await import('./cc-container-runner.js');
+      await injectCcCommand(containerName, command, entry.ptyBuffer);
     } catch (err) {
       log.warn('Slash command inject via tmux failed', { sessionId, command, err });
     }

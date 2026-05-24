@@ -1,11 +1,14 @@
-import { describe, it, expect, vi } from 'vitest';
-import { buildCcContainerMcpJson, buildCcContainerEnv } from './cc-container-runner.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { execSync } from 'child_process';
+import { buildCcContainerMcpJson, buildCcContainerEnv, injectCcCommand } from './cc-container-runner.js';
 import type { AgentGroup } from './types.js';
 import type { ProviderContainerContribution } from './providers/provider-container-registry.js';
 
+vi.mock('child_process', () => ({ execSync: vi.fn() }));
 vi.mock('./group-init.js', () => ({ initGroupFilesystem: vi.fn() }));
 vi.mock('./claude-md-compose.js', () => ({ composeGroupClaudeMd: vi.fn() }));
 vi.mock('./session-manager.js', () => ({ sessionDir: (_ag: string, sid: string) => `/tmp/sess/${sid}` }));
+vi.mock('./log.js', () => ({ log: { warn: vi.fn() } }));
 
 describe('buildCcContainerMcpJson', () => {
   it('uses generic server key', () => {
@@ -99,5 +102,91 @@ describe('buildCcContainerEnv', () => {
     );
     const flat = pairs.map((p) => p[1]);
     expect(flat).toContain('CUSTOM=val');
+  });
+
+  it('sets auto-compact to 50 for opus models', () => {
+    const pairs = buildCcContainerEnv(
+      group,
+      { mcpServers: {}, packages: { apt: [], npm: [] }, additionalMounts: [], skills: 'all', model: 'claude-opus-4-6[1m]' },
+      {},
+    );
+    const flat = pairs.map((p) => p[1]);
+    expect(flat).toContain('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50');
+  });
+
+  it('sets auto-compact to 80 for non-opus models', () => {
+    const pairs = buildCcContainerEnv(
+      group,
+      { mcpServers: {}, packages: { apt: [], npm: [] }, additionalMounts: [], skills: 'all', model: 'sonnet' },
+      {},
+    );
+    const flat = pairs.map((p) => p[1]);
+    expect(flat).toContain('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80');
+  });
+});
+
+describe('injectCcCommand', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.mocked(execSync).mockReset();
+    vi.mocked(execSync).mockReturnValue(Buffer.from(''));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('sends immediately when PTY shows idle prompt', async () => {
+    const ptyBuffer = { data: 'some output\n❯ ' };
+    const promise = injectCcCommand('test-ctr', '/compact', ptyBuffer);
+    await vi.advanceTimersByTimeAsync(500);
+    const result = await promise;
+
+    expect(result).toBe(true);
+    const calls = vi.mocked(execSync).mock.calls;
+    expect(calls.length).toBe(2);
+    expect(calls[0][0]).toContain('-- "/compact"');
+    expect(calls[1][0]).toContain('Enter');
+  });
+
+  it('polls until idle prompt appears', async () => {
+    const ptyBuffer = { data: 'processing...' };
+    const promise = injectCcCommand('test-ctr', '/compact', ptyBuffer, { pollMs: 100 });
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(vi.mocked(execSync)).not.toHaveBeenCalled();
+
+    ptyBuffer.data = 'done\n❯ ';
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(500);
+    const result = await promise;
+
+    expect(result).toBe(true);
+    expect(vi.mocked(execSync)).toHaveBeenCalledTimes(2);
+  });
+
+  it('sends on timeout with false return', async () => {
+    const ptyBuffer = { data: 'stuck processing' };
+    const promise = injectCcCommand('test-ctr', '/compact', ptyBuffer, {
+      timeoutMs: 1000,
+      pollMs: 100,
+    });
+
+    await vi.advanceTimersByTimeAsync(1100);
+    await vi.advanceTimersByTimeAsync(500);
+    const result = await promise;
+
+    expect(result).toBe(false);
+    expect(vi.mocked(execSync)).toHaveBeenCalledTimes(2);
+  });
+
+  it('detects > as idle prompt', async () => {
+    const ptyBuffer = { data: 'output\n> ' };
+    const promise = injectCcCommand('test-ctr', '/status', ptyBuffer);
+    await vi.advanceTimersByTimeAsync(500);
+    const result = await promise;
+
+    expect(result).toBe(true);
+    expect(vi.mocked(execSync)).toHaveBeenCalledTimes(2);
   });
 });
