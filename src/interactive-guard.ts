@@ -53,7 +53,7 @@ const QUOTA_WARNING_RE = /You(?:'|’)ve used (\d+)% of your (session|weekly|mon
 const LIMIT_TYPE_RE = /\b(session|weekly|monthly|Opus)\s+(?:spend\s+)?limit\b/i;
 
 const AUTH_RE =
-  /(Please run \/login|Not logged in|OAuth token (?:revoked|has expired|does not meet scope)|Invalid API key|organization has been disabled|disabled Claude subscription access|authentication_error)/i;
+  /(Please run \/login|Not logged in|OAuth token (?:revoked|has expired|does not meet scope)|Invalid API key|organization has been disabled|disabled Claude subscription access)/i;
 // "exceeded context window" / "Image was too large" are the weakest anchors
 // here — agent prose could include them. Mitigations: (1) tail-slice limits
 // scan to last 4000 chars so older self-description scrolls away; (2) the
