@@ -129,6 +129,32 @@ describe('buildCcContainerEnv', () => {
     const flat = pairs.map((p) => p[1]);
     expect(flat).toContain('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80');
   });
+
+  it('sets max context to 1000000 for 1m models', () => {
+    const pairs = buildCcContainerEnv(
+      group,
+      {
+        mcpServers: {},
+        packages: { apt: [], npm: [] },
+        additionalMounts: [],
+        skills: 'all',
+        model: 'claude-opus-4-6[1m]',
+      },
+      {},
+    );
+    const flat = pairs.map((p) => p[1]);
+    expect(flat).toContain('NANOCLAW_MAX_CONTEXT=1000000');
+  });
+
+  it('sets max context to 200000 for standard models', () => {
+    const pairs = buildCcContainerEnv(
+      group,
+      { mcpServers: {}, packages: { apt: [], npm: [] }, additionalMounts: [], skills: 'all', model: 'claude-sonnet-4-6' },
+      {},
+    );
+    const flat = pairs.map((p) => p[1]);
+    expect(flat).toContain('NANOCLAW_MAX_CONTEXT=200000');
+  });
 });
 
 describe('injectCcCommand', () => {

@@ -115,13 +115,14 @@ if [ -n "${NANOCLAW_MODEL:-}" ]; then
   CLAUDE_ARGS="$CLAUDE_ARGS --model $NANOCLAW_MODEL"
 fi
 
-# ---- Picker denial hook ----
+# ---- Hook scripts ----
 HOOKS_DIR="${CLAUDE_DIR}/hooks"
 mkdir -p "$HOOKS_DIR"
-if [ -f /app/cc-hooks/pretool-deny-picker.sh ]; then
-  cp /app/cc-hooks/pretool-deny-picker.sh "$HOOKS_DIR/"
-  chmod +x "$HOOKS_DIR/pretool-deny-picker.sh"
-fi
+for hook in /app/cc-hooks/*.sh; do
+  [ -f "$hook" ] || continue
+  cp "$hook" "$HOOKS_DIR/"
+  chmod +x "$HOOKS_DIR/$(basename "$hook")"
+done
 cat > "$CLAUDE_DIR/settings.json" <<SETTINGS
 {
   "trustedFolders": ["${PROJECT_DIR}", "/home/node"],
@@ -134,6 +135,26 @@ cat > "$CLAUDE_DIR/settings.json" <<SETTINGS
           {
             "type": "command",
             "command": "~/.claude/hooks/pretool-deny-picker.sh \$TOOL_NAME"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/pre-compact-notify.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/stop-observability.sh"
           }
         ]
       }

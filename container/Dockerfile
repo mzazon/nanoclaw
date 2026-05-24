@@ -51,6 +51,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         curl \
         git \
         jq \
+        sqlite3 \
         tini \
         tmux \
         unzip \

@@ -153,6 +153,8 @@ export function buildCcContainerEnv(
 
   const compactPct = containerConfig.model?.includes('opus') ? '50' : '80';
   envPairs.push(['-e', `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=${compactPct}`]);
+  const maxContext = containerConfig.model?.includes('[1m]') ? '1000000' : '200000';
+  envPairs.push(['-e', `NANOCLAW_MAX_CONTEXT=${maxContext}`]);
 
   try {
     const db = getDb();
