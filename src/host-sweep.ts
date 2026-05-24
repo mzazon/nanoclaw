@@ -68,6 +68,32 @@ import {
 } from './container-runner.js';
 import type { ContainerConfigRow, Session } from './types.js';
 
+interface CcStatusData {
+  context_pct: number;
+  cost_usd: number;
+  rate_limit_pct: number | null;
+  rate_limit_resets_at: number | null;
+  model: string;
+}
+
+function readCcStatus(sessDir: string): CcStatusData | null {
+  const statusPath = path.join(sessDir, '.cc-status.json');
+  try {
+    const stat = fs.statSync(statusPath);
+    if (Date.now() - stat.mtimeMs > 5 * 60 * 1000) return null;
+    const raw = JSON.parse(fs.readFileSync(statusPath, 'utf-8'));
+    return {
+      context_pct: raw.context_pct ?? 0,
+      cost_usd: raw.cost_usd ?? 0,
+      rate_limit_pct: raw.rate_limit_pct ?? null,
+      rate_limit_resets_at: raw.rate_limit_resets_at ?? null,
+      model: raw.model ?? 'unknown',
+    };
+  } catch {
+    return null;
+  }
+}
+
 function parseFreshContext(config: ContainerConfigRow): string | null {
   return config.fresh_context ?? null;
 }
@@ -412,6 +438,22 @@ async function sweepSession(session: Session): Promise<void> {
         const containerName = getContainerName(session.id);
         const isCcContainerSession = !!containerName && !interactiveEntry.process.stdin;
 
+        const configRow = getContainerConfig(agentGroup.id);
+        const ccStatus =
+          configRow?.runtime === 'cc-container'
+            ? readCcStatus(sessionDir(agentGroup.id, session.id))
+            : null;
+
+        if (ccStatus) {
+          log.info('cc-container status', {
+            sessionId: session.id,
+            model: ccStatus.model,
+            contextPct: ccStatus.context_pct,
+            costUsd: ccStatus.cost_usd,
+            rateLimitPct: ccStatus.rate_limit_pct,
+          });
+        }
+
         executeAction(action, scan, latch, {
           sessionId: session.id,
           sessionEpoch,
@@ -429,13 +471,11 @@ async function sweepSession(session: Session): Promise<void> {
           },
           killProcess: killWithFlags,
           notify,
-          // LIVE LOOKUP — captures the active map, NOT a stale entry. The
-          // rate-limit timer fires minutes/hours later; by then the entry may
-          // have been replaced by a respawn, so we must re-read each time.
           getEntry: () => {
             const e = getInteractiveEntry(session.id);
             return e ? { sessionEpoch: `${session.id}:${e.spawnedAt ?? 0}` } : undefined;
           },
+          statusResetAt: ccStatus?.rate_limit_resets_at ?? null,
         });
 
         if (action === 'send-enter') {

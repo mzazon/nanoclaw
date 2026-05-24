@@ -512,4 +512,32 @@ describe('executeAction', () => {
     expect(notify).toHaveBeenCalledWith(expect.stringContaining('Model config error'));
     expect(killProcess).toHaveBeenCalledWith();
   });
+
+  test('rate-limit-schedule uses statusResetAt when PTY reset time is unparseable', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-24T10:00:00Z'));
+    const latch = freshLatch();
+    const killProcess = vi.fn();
+
+    executeAction(
+      'rate-limit-schedule',
+      { signal: 'rate-limit', limitType: 'session', resetSpec: null },
+      latch,
+      {
+        sessionId: 's1',
+        sessionEpoch: 's1:1',
+        ptyWrite: () => {},
+        killProcess,
+        notify: () => {},
+        getEntry: () => ({ sessionEpoch: 's1:1' }),
+        statusResetAt: 1748170800,
+      },
+    );
+
+    expect(latch.rateLimitScheduled).not.toBeNull();
+    expect(latch.rateLimitScheduled!.resetAt).toBe(1748170800000);
+
+    vi.useRealTimers();
+    clearTimeout(latch.rateLimitScheduled!.timeoutHandle);
+  });
 });

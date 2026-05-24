@@ -215,6 +215,7 @@ export interface ExecuteContext {
   killProcess?: (respawnFlags?: RespawnFlags) => void;
   notify?: (text: string) => void;
   getEntry?: () => { sessionEpoch: string } | undefined;
+  statusResetAt?: number | null;
 }
 
 export function executeAction(action: GuardAction, scan: ScanResult, latch: SessionLatches, ctx: ExecuteContext): void {
@@ -260,7 +261,11 @@ export function executeAction(action: GuardAction, scan: ScanResult, latch: Sess
       ctx.ptyWrite?.('\r'); // accept "Stop and wait" default
       const now = Date.now();
       const computed = computeResetMs(scan.resetSpec ?? null);
-      const resetAt = Number.isFinite(computed) ? computed : now + 60 * 60 * 1000;
+      const resetAt = Number.isFinite(computed)
+        ? computed
+        : ctx.statusResetAt && Number.isFinite(ctx.statusResetAt)
+          ? ctx.statusResetAt * 1000
+          : now + 60 * 60 * 1000;
 
       const limitLabel = scan.limitType && scan.limitType !== 'unknown' ? ` (${scan.limitType})` : '';
       const whenLabel = scan.resetSpec
