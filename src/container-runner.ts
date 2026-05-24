@@ -248,10 +248,22 @@ async function spawnContainer(session: Session): Promise<void> {
       args.push('-e', 'NANOCLAW_NO_CONTINUE=1');
     }
 
-    // CC auth: long-lived OAuth token from claude setup-token (stored in .env).
-    // No OneCLI proxy — CC uses subscription billing directly.
+    // CC auth: OAuth token for Anthropic API (subscription billing).
     if (CC_CONTAINER_OAUTH_TOKEN) {
       args.push('-e', `CLAUDE_CODE_OAUTH_TOKEN=${CC_CONTAINER_OAUTH_TOKEN}`);
+    }
+
+    // OneCLI gateway — same pattern as agent-runner. Injects HTTPS_PROXY + CA
+    // cert so MCP servers inside the container get credential injection.
+    // CC's own API calls bypass via NO_PROXY=api.anthropic.com (set in buildCcContainerEnv).
+    if (ONECLI_URL && ONECLI_API_KEY) {
+      await onecli.ensureAgent({ name: agentGroup.name, identifier: agentIdentifier });
+      const onecliApplied = await onecli.applyContainerConfig(args, { addHostMapping: false, agent: agentIdentifier });
+      if (onecliApplied) {
+        log.info('OneCLI gateway applied to cc-container', { containerName });
+      } else {
+        log.warn('OneCLI gateway not applied to cc-container — MCP servers won\'t have credentials', { containerName });
+      }
     }
 
     args.push(...hostGatewayArgs());
@@ -262,6 +274,9 @@ async function spawnContainer(session: Session): Promise<void> {
       args.push('--user', `${hostUid}:${hostGid}`);
       args.push('-e', 'HOME=/home/node');
     }
+
+    // Named config volume — persists auth, plugins, CC state across rebuilds.
+    args.push('-v', `nanoclaw-cc-config-${agentGroup.id}:/home/node/.claude`);
 
     for (const mount of mounts) {
       if (mount.readonly) {

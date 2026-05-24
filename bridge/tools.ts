@@ -127,11 +127,14 @@ export function buildInstructions(sessionDir: string, assistantName?: string): s
   if (assistantName) {
     sections.push('', `Your name is **${assistantName}**.`);
   }
-  const dests = getAllDestinations(sessionDir);
-  if (dests.length > 0) {
-    sections.push('', 'Available destinations:');
-    for (const d of dests) {
-      sections.push(`- ${d.name}${d.displayName !== d.name ? ` (${d.displayName})` : ''}`);
+  const showDestinations = process.env.NANOCLAW_BRIDGE_DESTINATIONS === '1' || process.env.NANOCLAW_BRIDGE_NCL !== '0';
+  if (showDestinations) {
+    const dests = getAllDestinations(sessionDir);
+    if (dests.length > 0) {
+      sections.push('', 'Available destinations:');
+      for (const d of dests) {
+        sections.push(`- ${d.name}${d.displayName !== d.name ? ` (${d.displayName})` : ''}`);
+      }
     }
   }
   return sections.join('\n');

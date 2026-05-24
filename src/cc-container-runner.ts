@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { GROUPS_DIR, TIMEZONE } from './config.js';
+import { getDb, hasTable } from './db/connection.js';
 import { CONTAINER_RUNTIME_BIN } from './container-runtime.js';
 import type { ContainerConfig, McpServerConfig } from './container-config.js';
 import { composeGroupClaudeMd } from './claude-md-compose.js';
@@ -143,6 +144,18 @@ export function buildCcContainerEnv(
   const compactPct = containerConfig.model?.includes('opus') ? '50' : '80';
   envPairs.push(['-e', `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=${compactPct}`]);
 
+  try {
+    const db = getDb();
+    if (hasTable(db, 'agent_destinations')) {
+      const row = db.prepare('SELECT 1 FROM agent_destinations WHERE agent_group_id = ? LIMIT 1').get(agentGroup.id);
+      if (row) {
+        envPairs.push(['-e', 'NANOCLAW_BRIDGE_DESTINATIONS=1']);
+      }
+    }
+  } catch {
+    // DB not available during tests or early init — skip destinations check
+  }
+
   if (providerContribution.env) {
     for (const [key, value] of Object.entries(providerContribution.env)) {
       envPairs.push(['-e', `${key}=${value}`]);
@@ -217,10 +230,10 @@ export async function injectCcCommand(
     }
   }
 
-  execSync(
-    `${CONTAINER_RUNTIME_BIN} exec ${containerName} tmux send-keys -t cc -- ${JSON.stringify(command)}`,
-    { stdio: 'pipe', timeout: 5000 },
-  );
+  execSync(`${CONTAINER_RUNTIME_BIN} exec ${containerName} tmux send-keys -t cc -- ${JSON.stringify(command)}`, {
+    stdio: 'pipe',
+    timeout: 5000,
+  });
   await sleep(delayMs);
   execSync(`${CONTAINER_RUNTIME_BIN} exec ${containerName} tmux send-keys -t cc Enter`, {
     stdio: 'pipe',

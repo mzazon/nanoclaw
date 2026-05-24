@@ -9,7 +9,12 @@ SESSION_DIR="${NANOCLAW_SESSION_DIR:-/workspaces/.nanoclaw}"
 PROJECT_DIR="/workspaces/project"
 
 # ---- Resolve Claude binary + version ----
-CLAUDE_BIN="$(command -v claude)"
+CLAUDE_BIN="$(command -v claude || true)"
+if [ -z "$CLAUDE_BIN" ] || ! "$CLAUDE_BIN" --version &>/dev/null; then
+  echo "[cc-entrypoint] Claude binary missing or broken — reinstalling..." >&2
+  npm install -g @anthropic-ai/claude-code 2>&1 | tail -3 >&2
+  CLAUDE_BIN="$(command -v claude)"
+fi
 CC_VERSION="$("$CLAUDE_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo '2.1.128')"
 CC_VERSION="${CC_VERSION:-2.1.128}"
 
@@ -69,9 +74,20 @@ CC_CONFIG='{
     "tengu_sedge_lantern": true
   }
 }'
-echo "$CC_CONFIG" > "${HOME}/.claude.json"
-echo "$CC_CONFIG" > "${CLAUDE_DIR}/.config.json"
-echo "$CC_CONFIG" > "${CLAUDE_DIR}/claude.json"
+# Write or merge config. If file exists (from named volume), merge baked
+# fields over it to preserve plugins/auth/theme. Otherwise create fresh.
+write_or_merge_config() {
+  local target="$1"
+  if [ -f "$target" ] && command -v jq &>/dev/null; then
+    jq -s '.[0] * .[1]' "$target" <(echo "$CC_CONFIG") > "${target}.tmp"
+    mv "${target}.tmp" "$target"
+  else
+    echo "$CC_CONFIG" > "$target"
+  fi
+}
+write_or_merge_config "${HOME}/.claude.json"
+write_or_merge_config "${CLAUDE_DIR}/.config.json"
+write_or_merge_config "${CLAUDE_DIR}/claude.json"
 
 # ---- Git safe directories for mounted volumes ----
 git config --global --add safe.directory "$PROJECT_DIR"

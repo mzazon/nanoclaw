@@ -107,7 +107,13 @@ describe('buildCcContainerEnv', () => {
   it('sets auto-compact to 50 for opus models', () => {
     const pairs = buildCcContainerEnv(
       group,
-      { mcpServers: {}, packages: { apt: [], npm: [] }, additionalMounts: [], skills: 'all', model: 'claude-opus-4-6[1m]' },
+      {
+        mcpServers: {},
+        packages: { apt: [], npm: [] },
+        additionalMounts: [],
+        skills: 'all',
+        model: 'claude-opus-4-6[1m]',
+      },
       {},
     );
     const flat = pairs.map((p) => p[1]);
