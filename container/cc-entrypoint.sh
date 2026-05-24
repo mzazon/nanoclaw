@@ -102,6 +102,7 @@ if [ -f "${SESSION_DIR}/.mcp.json" ]; then
 fi
 
 CLAUDE_ARGS="$CLAUDE_ARGS --add-dir ${PROJECT_DIR}"
+CLAUDE_ARGS="$CLAUDE_ARGS --settings /app/cc-settings.json"
 
 # --continue only if a prior CC session exists in the container's .claude dir.
 # Without a prior session, --continue causes CC to print "No conversation found" and exit.
@@ -123,45 +124,6 @@ for hook in /app/cc-hooks/*.sh; do
   cp "$hook" "$HOOKS_DIR/"
   chmod +x "$HOOKS_DIR/$(basename "$hook")"
 done
-cat > "$CLAUDE_DIR/settings.json" <<SETTINGS
-{
-  "trustedFolders": ["${PROJECT_DIR}", "/home/node"],
-  "skipDangerousModePermissionPrompt": true,
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "AskUserQuestion|ExitPlanMode",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/pretool-deny-picker.sh \$TOOL_NAME"
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/pre-compact-notify.sh"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/stop-observability.sh"
-          }
-        ]
-      }
-    ]
-  }
-}
-SETTINGS
 
 # ---- PTY output file ----
 PTY_OUTPUT="${SESSION_DIR}/.pty-output"

@@ -97,6 +97,12 @@ export function buildCcContainerMounts(
     mounts.push({ hostPath: hooksSrc, containerPath: '/app/cc-hooks', readonly: true });
   }
 
+  // CC settings — RO (--settings flag points here; CC never overwrites it)
+  const settingsSrc = path.join(projectRoot, 'container', 'cc-settings.json');
+  if (fs.existsSync(settingsSrc)) {
+    mounts.push({ hostPath: settingsSrc, containerPath: '/app/cc-settings.json', readonly: true });
+  }
+
   // Global memory — RO
   const globalDir = path.join(GROUPS_DIR, 'global');
   if (fs.existsSync(globalDir)) {
