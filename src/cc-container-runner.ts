@@ -137,9 +137,19 @@ export function buildCcContainerEnv(
     envPairs.push(['-e', `NANOCLAW_MODEL=${containerConfig.model}`]);
   }
 
-  // Tool surface minimization: scheduling and NCL disabled by default for cc-container
+  // Tool surface minimization: scheduling disabled by default for cc-container.
+  // NCL gated by cli_scope — enabled when scope is 'group' or 'global' (needed for self-mod).
   envPairs.push(['-e', 'NANOCLAW_BRIDGE_SCHEDULING=0']);
-  envPairs.push(['-e', 'NANOCLAW_BRIDGE_NCL=0']);
+  let cliScope = 'disabled';
+  try {
+    const row = getDb()
+      .prepare('SELECT cli_scope FROM container_configs WHERE agent_group_id = ?')
+      .get(agentGroup.id) as { cli_scope: string } | undefined;
+    if (row) cliScope = row.cli_scope;
+  } catch {
+    // DB unavailable during tests
+  }
+  envPairs.push(['-e', `NANOCLAW_BRIDGE_NCL=${cliScope !== 'disabled' ? '1' : '0'}`]);
 
   const compactPct = containerConfig.model?.includes('opus') ? '50' : '80';
   envPairs.push(['-e', `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=${compactPct}`]);
