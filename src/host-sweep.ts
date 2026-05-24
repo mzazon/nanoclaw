@@ -402,6 +402,22 @@ async function sweepSession(session: Session): Promise<void> {
         pendingMessages: dueCount,
       });
 
+      // CC-container status file: log metrics every sweep tick.
+      const configRow = getContainerConfig(agentGroup.id);
+      const ccStatus =
+        configRow?.runtime === 'cc-container'
+          ? readCcStatus(sessionDir(agentGroup.id, session.id))
+          : null;
+      if (ccStatus) {
+        log.info('cc-container status', {
+          sessionId: session.id,
+          model: ccStatus.model,
+          contextPct: ccStatus.context_pct,
+          costUsd: ccStatus.cost_usd,
+          rateLimitPct: ccStatus.rate_limit_pct,
+        });
+      }
+
       if (action !== 'ok') {
         log.warn(
           `Interactive guard: action=${action} signal=${scan.signal ?? '-'} hbStaleMs=${hbStaleMs} pending=${dueCount} session=${session.id}`,
@@ -437,22 +453,6 @@ async function sweepSession(session: Session): Promise<void> {
 
         const containerName = getContainerName(session.id);
         const isCcContainerSession = !!containerName && !interactiveEntry.process.stdin;
-
-        const configRow = getContainerConfig(agentGroup.id);
-        const ccStatus =
-          configRow?.runtime === 'cc-container'
-            ? readCcStatus(sessionDir(agentGroup.id, session.id))
-            : null;
-
-        if (ccStatus) {
-          log.info('cc-container status', {
-            sessionId: session.id,
-            model: ccStatus.model,
-            contextPct: ccStatus.context_pct,
-            costUsd: ccStatus.cost_usd,
-            rateLimitPct: ccStatus.rate_limit_pct,
-          });
-        }
 
         executeAction(action, scan, latch, {
           sessionId: session.id,
