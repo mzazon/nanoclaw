@@ -25,7 +25,7 @@ export type BufferSignal =
   | 'model-error'
   | null;
 
-export type LimitType = 'session' | 'weekly' | 'Opus' | 'unknown';
+export type LimitType = 'session' | 'weekly' | 'monthly' | 'Opus' | 'unknown';
 
 export interface ScanResult {
   signal: BufferSignal;
@@ -45,11 +45,11 @@ export type GuardAction =
   | 'ok';
 
 // Regex anchors — see spec §"Regex anchors" for citations.
-const HEADLINE_RE = /You(?:'|’)ve hit your\s*(?:session|weekly|Opus|)?\s?limit/i;
+const HEADLINE_RE = /You(?:'|’)ve hit your\s*(?:session|weekly|monthly|Opus|spend|)?\s?(?:spend\s+)?limit/i;
 const LEGACY_RE = /(Claude (?:AI )?usage limit reached|5-hour limit reached)/i;
-const MENU_RE = /(Stop and wait for limit|Upgrade your plan)/;
-const QUOTA_WARNING_RE = /You(?:'|’)ve used (\d+)% of your (session|weekly|Opus) limit/i;
-const LIMIT_TYPE_RE = /\b(session|weekly|Opus)\s+limit\b/i;
+const MENU_RE = /(Stop and wait for limit|Upgrade your plan|Wait for limit to reset|Adjust monthly spend limit|What do you want to do)/;
+const QUOTA_WARNING_RE = /You(?:'|’)ve used (\d+)% of your (session|weekly|monthly|Opus) limit/i;
+const LIMIT_TYPE_RE = /\b(session|weekly|monthly|Opus)\s+(?:spend\s+)?limit\b/i;
 
 const AUTH_RE =
   /(Please run \/login|Not logged in|OAuth token (?:revoked|has expired|does not meet scope)|Invalid API key|organization has been disabled|disabled Claude subscription access|authentication_error)/i;
@@ -92,7 +92,7 @@ export function scanPtyBuffer(buffer: string): ScanResult {
     const limitType: LimitType = limitTypeMatch
       ? limitTypeMatch[1].toLowerCase() === 'opus'
         ? 'Opus'
-        : (limitTypeMatch[1].toLowerCase() as 'session' | 'weekly')
+        : (limitTypeMatch[1].toLowerCase() as 'session' | 'weekly' | 'monthly')
       : 'unknown';
     return {
       signal: 'rate-limit',
@@ -124,7 +124,7 @@ export function scanPtyBuffer(buffer: string): ScanResult {
   if (quotaMatch) {
     const percent = parseInt(quotaMatch[1], 10);
     const limitType = (
-      quotaMatch[2].toLowerCase() === 'opus' ? 'Opus' : (quotaMatch[2].toLowerCase() as 'session' | 'weekly')
+      quotaMatch[2].toLowerCase() === 'opus' ? 'Opus' : (quotaMatch[2].toLowerCase() as 'session' | 'weekly' | 'monthly')
     ) as LimitType;
     return {
       signal: 'quota-warning',
@@ -165,7 +165,7 @@ export function decideAction(state: DecideState): GuardAction {
     case 'quota-warning': {
       if (!scan.percent || !scan.limitType || scan.limitType === 'unknown') return 'ok';
       const bucket = scan.percent >= 100 ? 100 : scan.percent >= 99 ? 99 : 95;
-      const seen = latch.quotaWarned[scan.limitType as 'session' | 'weekly' | 'Opus'];
+      const seen = latch.quotaWarned[scan.limitType as 'session' | 'weekly' | 'monthly' | 'Opus'];
       return seen.has(bucket) ? 'ok' : 'quota-warning-notify';
     }
 

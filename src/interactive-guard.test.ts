@@ -4,7 +4,7 @@ import type { SessionLatches } from './interactive-rate-limit.js';
 
 function freshLatch(): SessionLatches {
   return {
-    quotaWarned: { session: new Set(), weekly: new Set(), Opus: new Set() },
+    quotaWarned: { session: new Set(), weekly: new Set(), monthly: new Set(), Opus: new Set() },
     rateLimitScheduled: null,
   };
 }
@@ -47,6 +47,27 @@ describe('scanPtyBuffer — rate-limit (3-layer regex)', () => {
 
   test('MENU "Upgrade your plan" matches', () => {
     const r = scanPtyBuffer('  2. Upgrade your plan');
+    expect(r.signal).toBe('rate-limit');
+  });
+
+  test('HEADLINE matches "monthly spend limit"', () => {
+    const r = scanPtyBuffer("You've hit your monthly spend limit.");
+    expect(r.signal).toBe('rate-limit');
+    expect(r.limitType).toBe('monthly');
+  });
+
+  test('MENU matches "Wait for limit to reset"', () => {
+    const r = scanPtyBuffer('  Wait for limit to reset                      Resets 8am (America/New_York)');
+    expect(r.signal).toBe('rate-limit');
+  });
+
+  test('MENU matches "What do you want to do?" picker', () => {
+    const r = scanPtyBuffer('What do you want to do?                         Usage credit balance: $31.14');
+    expect(r.signal).toBe('rate-limit');
+  });
+
+  test('MENU matches "Adjust monthly spend limit"', () => {
+    const r = scanPtyBuffer('❯ Adjust monthly spend limit: Unlimited');
     expect(r.signal).toBe('rate-limit');
   });
 

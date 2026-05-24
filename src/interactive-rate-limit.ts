@@ -9,6 +9,7 @@ export interface SessionLatches {
   quotaWarned: {
     session: Set<number>;
     weekly: Set<number>;
+    monthly: Set<number>;
     Opus: Set<number>;
   };
   rateLimitScheduled: {
@@ -176,7 +177,7 @@ export function getLatches(sessionId: string): SessionLatches {
   let entry = _latches.get(sessionId);
   if (!entry) {
     entry = {
-      quotaWarned: { session: new Set(), weekly: new Set(), Opus: new Set() },
+      quotaWarned: { session: new Set(), weekly: new Set(), monthly: new Set(), Opus: new Set() },
       rateLimitScheduled: null,
     };
     _latches.set(sessionId, entry);
