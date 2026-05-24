@@ -262,7 +262,7 @@ async function spawnContainer(session: Session): Promise<void> {
       if (onecliApplied) {
         log.info('OneCLI gateway applied to cc-container', { containerName });
       } else {
-        log.warn('OneCLI gateway not applied to cc-container — MCP servers won\'t have credentials', { containerName });
+        log.warn("OneCLI gateway not applied to cc-container — MCP servers won't have credentials", { containerName });
       }
     }
 
@@ -522,6 +522,12 @@ function buildMounts(
   // Shared agent-runner source — read-only, same code for all groups.
   const agentRunnerSrc = path.join(projectRoot, 'container', 'agent-runner', 'src');
   mounts.push({ hostPath: agentRunnerSrc, containerPath: '/app/src', readonly: true });
+
+  // Shared MCP servers — read-only, used by both agent-runner and cc-container.
+  const mcpServersSrc = path.join(projectRoot, 'container', 'mcp-servers');
+  if (fs.existsSync(mcpServersSrc)) {
+    mounts.push({ hostPath: mcpServersSrc, containerPath: '/app/mcp-servers', readonly: true });
+  }
 
   // Shared skills — read-only, symlinks in .claude-shared/skills/ point here.
   const skillsSrc = path.join(projectRoot, 'container', 'skills');

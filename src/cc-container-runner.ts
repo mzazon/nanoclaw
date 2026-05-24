@@ -91,6 +91,12 @@ export function buildCcContainerMounts(
     mounts.push({ hostPath: skillsSrc, containerPath: '/app/skills', readonly: true });
   }
 
+  // Shared MCP servers — RO (same servers available to agent-runner and cc-container)
+  const mcpServersSrc = path.join(projectRoot, 'container', 'mcp-servers');
+  if (fs.existsSync(mcpServersSrc)) {
+    mounts.push({ hostPath: mcpServersSrc, containerPath: '/app/mcp-servers', readonly: true });
+  }
+
   // CC hooks — RO
   const hooksSrc = path.join(projectRoot, 'container', 'cc-hooks');
   if (fs.existsSync(hooksSrc)) {

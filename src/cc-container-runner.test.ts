@@ -50,6 +50,21 @@ describe('buildCcContainerMounts', () => {
     expect(projectsMount!.hostPath).toBe('/tmp/sess/sess-1/.claude-projects');
     expect(projectsMount!.readonly).toBe(false);
   });
+
+  it('includes mcp-servers mount', async () => {
+    const { buildCcContainerMounts } = await import('./cc-container-runner.js');
+    const group: AgentGroup = { id: 'ag-cc', name: 'CC', folder: 'cc', agent_provider: null, created_at: '2026-01-01' };
+    const session = { id: 'sess-1', agent_group_id: 'ag-cc', messaging_group_id: 'mg-1', thread_id: null };
+    const mounts = buildCcContainerMounts(
+      group,
+      session as any,
+      { mcpServers: {}, packages: { apt: [], npm: [] }, additionalMounts: [], skills: 'all' },
+      {},
+    );
+    const mcpMount = mounts.find((m) => m.containerPath === '/app/mcp-servers');
+    expect(mcpMount).toBeDefined();
+    expect(mcpMount!.readonly).toBe(true);
+  });
 });
 
 describe('buildCcContainerEnv', () => {
@@ -149,7 +164,13 @@ describe('buildCcContainerEnv', () => {
   it('sets max context to 200000 for standard models', () => {
     const pairs = buildCcContainerEnv(
       group,
-      { mcpServers: {}, packages: { apt: [], npm: [] }, additionalMounts: [], skills: 'all', model: 'claude-sonnet-4-6' },
+      {
+        mcpServers: {},
+        packages: { apt: [], npm: [] },
+        additionalMounts: [],
+        skills: 'all',
+        model: 'claude-sonnet-4-6',
+      },
       {},
     );
     const flat = pairs.map((p) => p[1]);
