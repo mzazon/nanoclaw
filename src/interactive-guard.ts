@@ -47,7 +47,8 @@ export type GuardAction =
 // Regex anchors — see spec §"Regex anchors" for citations.
 const HEADLINE_RE = /You(?:'|’)ve hit your\s*(?:session|weekly|monthly|Opus|spend|)?\s?(?:spend\s+)?limit/i;
 const LEGACY_RE = /(Claude (?:AI )?usage limit reached|5-hour limit reached)/i;
-const MENU_RE = /(Stop and wait for limit|Upgrade your plan|Wait for limit to reset|Adjust monthly spend limit|What do you want to do)/;
+const MENU_RE =
+  /(Stop and wait for limit|Upgrade your plan|Wait for limit to reset|Adjust monthly spend limit|What do you want to do)/;
 const QUOTA_WARNING_RE = /You(?:'|’)ve used (\d+)% of your (session|weekly|monthly|Opus) limit/i;
 const LIMIT_TYPE_RE = /\b(session|weekly|monthly|Opus)\s+(?:spend\s+)?limit\b/i;
 
@@ -124,7 +125,9 @@ export function scanPtyBuffer(buffer: string): ScanResult {
   if (quotaMatch) {
     const percent = parseInt(quotaMatch[1], 10);
     const limitType = (
-      quotaMatch[2].toLowerCase() === 'opus' ? 'Opus' : (quotaMatch[2].toLowerCase() as 'session' | 'weekly' | 'monthly')
+      quotaMatch[2].toLowerCase() === 'opus'
+        ? 'Opus'
+        : (quotaMatch[2].toLowerCase() as 'session' | 'weekly' | 'monthly')
     ) as LimitType;
     return {
       signal: 'quota-warning',

@@ -22,16 +22,11 @@
           }
         ]
       }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/stop-observability.sh"
-          }
-        ]
-      }
     ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/hooks/statusline.sh",
+    "refreshInterval": 30
   }
 }
