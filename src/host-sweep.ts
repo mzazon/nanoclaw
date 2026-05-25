@@ -376,6 +376,18 @@ async function sweepSession(session: Session): Promise<void> {
         const stat = fs.statSync(markerPath);
         markerExists = true;
         markerStaleMs = Date.now() - stat.mtimeMs;
+        // Marker from a previous container incarnation — the old bridge wrote it
+        // before dying, and no one cleaned it. Clear it so we don't kill the
+        // freshly-spawned container before its bridge can start.
+        if (interactiveEntry.spawnedAt && stat.mtimeMs < interactiveEntry.spawnedAt) {
+          log.info('Clearing stale bridge marker from previous container', {
+            sessionId: session.id,
+            markerAgeMs: markerStaleMs,
+            spawnedAt: interactiveEntry.spawnedAt,
+          });
+          try { fs.rmSync(markerPath, { force: true }); } catch {}
+          markerExists = false;
+        }
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
       }
@@ -392,6 +404,8 @@ async function sweepSession(session: Session): Promise<void> {
           `Bridge marker detected silent stuck — kill-respawn session=${session.id} markerStaleMs=${markerStaleMs}`,
         );
         killContainer(session.id, `bridge-unresponsive-${markerStaleMs}ms`);
+        // Clean the marker after kill to prevent crash-loop on next spawn.
+        try { fs.rmSync(markerPath, { force: true }); } catch {}
         // Skip the rest of the sweep tick for this session — the container is
         // dying, decideAction would just race with that. Recurrence/etc. will
         // pick up on the next tick once the container is fully gone.
