@@ -17,6 +17,8 @@ export interface SessionLatches {
     timeoutHandle: NodeJS.Timeout;
     sessionEpoch: string;
   } | null;
+  lastSignal: string | null;
+  lastSignalAt: number;
 }
 
 const RESET_TIME_RE =
@@ -179,6 +181,8 @@ export function getLatches(sessionId: string): SessionLatches {
     entry = {
       quotaWarned: { session: new Set(), weekly: new Set(), monthly: new Set(), Opus: new Set() },
       rateLimitScheduled: null,
+      lastSignal: null,
+      lastSignalAt: 0,
     };
     _latches.set(sessionId, entry);
   }

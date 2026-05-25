@@ -6,7 +6,13 @@ function freshLatch(): SessionLatches {
   return {
     quotaWarned: { session: new Set(), weekly: new Set(), monthly: new Set(), Opus: new Set() },
     rateLimitScheduled: null,
+    lastSignal: null,
+    lastSignalAt: 0,
   };
+}
+
+function confirmedLatch(signal: string): SessionLatches {
+  return { ...freshLatch(), lastSignal: signal, lastSignalAt: Date.now() - 60_000 };
 }
 
 describe('scanPtyBuffer — rate-limit (3-layer regex)', () => {
@@ -296,11 +302,11 @@ describe('decideAction', () => {
     ).toBe('send-enter');
   });
 
-  test('auth-required → kill', () => {
+  test('auth-required → kill (after confirmation)', () => {
     expect(
       decideAction({
         scan: { signal: 'auth-required' },
-        latch: freshLatch(),
+        latch: confirmedLatch('auth-required'),
         heartbeatStaleMs: 0,
         processAlive: true,
         pendingMessages: 0,
@@ -308,11 +314,11 @@ describe('decideAction', () => {
     ).toBe('kill');
   });
 
-  test('model-error → kill', () => {
+  test('model-error → kill (after confirmation)', () => {
     expect(
       decideAction({
         scan: { signal: 'model-error' },
-        latch: freshLatch(),
+        latch: confirmedLatch('model-error'),
         heartbeatStaleMs: 0,
         processAlive: true,
         pendingMessages: 0,
@@ -320,11 +326,11 @@ describe('decideAction', () => {
     ).toBe('kill');
   });
 
-  test('context-overflow → kill-respawn-noContinue', () => {
+  test('context-overflow → kill-respawn-noContinue (after confirmation)', () => {
     expect(
       decideAction({
         scan: { signal: 'context-overflow' },
-        latch: freshLatch(),
+        latch: confirmedLatch('context-overflow'),
         heartbeatStaleMs: 0,
         processAlive: true,
         pendingMessages: 0,
@@ -332,11 +338,11 @@ describe('decideAction', () => {
     ).toBe('kill-respawn-noContinue');
   });
 
-  test('policy-refusal → kill-respawn-noContinue', () => {
+  test('policy-refusal → kill-respawn-noContinue (after confirmation)', () => {
     expect(
       decideAction({
         scan: { signal: 'policy-refusal' },
-        latch: freshLatch(),
+        latch: confirmedLatch('policy-refusal'),
         heartbeatStaleMs: 0,
         processAlive: true,
         pendingMessages: 0,
@@ -344,7 +350,7 @@ describe('decideAction', () => {
     ).toBe('kill-respawn-noContinue');
   });
 
-  test('auto-mode-block below grace → ok', () => {
+  test('auto-mode-block below grace → ok (first scan deferred)', () => {
     expect(
       decideAction({
         scan: { signal: 'auto-mode-block' },
@@ -356,11 +362,11 @@ describe('decideAction', () => {
     ).toBe('ok');
   });
 
-  test('auto-mode-block above grace → kill-respawn', () => {
+  test('auto-mode-block above grace → kill-respawn (after confirmation)', () => {
     expect(
       decideAction({
         scan: { signal: 'auto-mode-block' },
-        latch: freshLatch(),
+        latch: confirmedLatch('auto-mode-block'),
         heartbeatStaleMs: 3 * 60_000,
         processAlive: true,
         pendingMessages: 0,
@@ -368,11 +374,11 @@ describe('decideAction', () => {
     ).toBe('kill-respawn');
   });
 
-  test('network-block above grace → kill-respawn', () => {
+  test('network-block above grace → kill-respawn (after confirmation)', () => {
     expect(
       decideAction({
         scan: { signal: 'network-block' },
-        latch: freshLatch(),
+        latch: confirmedLatch('network-block'),
         heartbeatStaleMs: 6 * 60_000,
         processAlive: true,
         pendingMessages: 0,
@@ -390,6 +396,73 @@ describe('decideAction', () => {
         pendingMessages: 3,
       }),
     ).toBe('kill-respawn');
+  });
+});
+
+describe('two-scan confirmation', () => {
+  const baseState = { heartbeatStaleMs: 0, processAlive: true, pendingMessages: 0 };
+
+  test('auth-required on first scan → ok (deferred)', () => {
+    const latch = freshLatch();
+    const action = decideAction({ scan: { signal: 'auth-required' }, latch, ...baseState });
+    expect(action).toBe('ok');
+    expect(latch.lastSignal).toBe('auth-required');
+  });
+
+  test('auth-required on second consecutive scan → kill', () => {
+    const latch = freshLatch();
+    latch.lastSignal = 'auth-required';
+    latch.lastSignalAt = Date.now() - 60_000;
+    const action = decideAction({ scan: { signal: 'auth-required' }, latch, ...baseState });
+    expect(action).toBe('kill');
+  });
+
+  test('context-overflow requires confirmation before kill-respawn-noContinue', () => {
+    const latch = freshLatch();
+    expect(decideAction({ scan: { signal: 'context-overflow' }, latch, ...baseState })).toBe('ok');
+    latch.lastSignalAt = Date.now() - 60_000;
+    expect(decideAction({ scan: { signal: 'context-overflow' }, latch, ...baseState })).toBe('kill-respawn-noContinue');
+  });
+
+  test('signal change resets confirmation window', () => {
+    const latch = freshLatch();
+    latch.lastSignal = 'auth-required';
+    latch.lastSignalAt = Date.now() - 30_000;
+    const action = decideAction({ scan: { signal: 'context-overflow' }, latch, ...baseState });
+    expect(action).toBe('ok');
+    expect(latch.lastSignal).toBe('context-overflow');
+  });
+
+  test('stale confirmation (>120s) resets', () => {
+    const latch = freshLatch();
+    latch.lastSignal = 'auth-required';
+    latch.lastSignalAt = Date.now() - 130_000;
+    const action = decideAction({ scan: { signal: 'auth-required' }, latch, ...baseState });
+    expect(action).toBe('ok');
+  });
+
+  test('rate-limit is exempt from confirmation', () => {
+    const latch = freshLatch();
+    const action = decideAction({
+      scan: { signal: 'rate-limit', limitType: 'session', resetSpec: null },
+      latch,
+      ...baseState,
+    });
+    expect(action).toBe('rate-limit-schedule');
+  });
+
+  test('dev-prompt is exempt from confirmation', () => {
+    const latch = freshLatch();
+    const action = decideAction({ scan: { signal: 'dev-prompt' }, latch, ...baseState });
+    expect(action).toBe('send-enter');
+  });
+
+  test('null signal clears lastSignal', () => {
+    const latch = freshLatch();
+    latch.lastSignal = 'auth-required';
+    latch.lastSignalAt = Date.now() - 30_000;
+    decideAction({ scan: { signal: null }, latch, ...baseState });
+    expect(latch.lastSignal).toBeNull();
   });
 });
 

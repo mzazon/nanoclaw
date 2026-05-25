@@ -11,7 +11,7 @@ const STUCK_THRESHOLD_MS = 5 * 60 * 1000;
 const IDLE_THRESHOLD_MS = 30 * 60 * 1000;
 const AUTO_MODE_GRACE_MS = 2 * 60 * 1000;
 const NETWORK_GRACE_MS = 5 * 60 * 1000;
-const TAIL_SCAN_CHARS = 4000;
+const TAIL_SCAN_CHARS = 1500;
 
 export type BufferSignal =
   | 'rate-limit'
@@ -148,6 +148,12 @@ export function scanPtyBuffer(buffer: string): ScanResult {
 // Re-exports for consumer (host-sweep, will use these in Task 6)
 export { STUCK_THRESHOLD_MS, IDLE_THRESHOLD_MS, AUTO_MODE_GRACE_MS, NETWORK_GRACE_MS };
 
+// ---- two-scan confirmation ----
+// Destructive actions require the same signal on 2 consecutive sweep ticks
+// (60s apart) to avoid false positives from transient MCP tool output.
+const CONFIRM_WINDOW_MS = 120_000;
+const CONFIRM_EXEMPT: ReadonlySet<BufferSignal> = new Set(['rate-limit', 'quota-warning', 'dev-prompt', null]);
+
 // ---- decideAction ----
 
 export interface DecideState {
@@ -160,6 +166,20 @@ export interface DecideState {
 
 export function decideAction(state: DecideState): GuardAction {
   const { scan, latch, heartbeatStaleMs, processAlive, pendingMessages } = state;
+
+  // Two-scan confirmation: record signal, defer action until confirmed.
+  if (!CONFIRM_EXEMPT.has(scan.signal)) {
+    const now = Date.now();
+    if (latch.lastSignal !== scan.signal || now - latch.lastSignalAt > CONFIRM_WINDOW_MS) {
+      latch.lastSignal = scan.signal;
+      latch.lastSignalAt = now;
+      return 'ok';
+    }
+  }
+  if (scan.signal === null) {
+    latch.lastSignal = null;
+    latch.lastSignalAt = 0;
+  }
 
   switch (scan.signal) {
     case 'rate-limit':
