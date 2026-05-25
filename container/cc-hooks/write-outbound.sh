@@ -28,9 +28,15 @@ MAX=$(( MAX_OUT > MAX_IN ? MAX_OUT : MAX_IN ))
 SEQ=$(( MAX % 2 == 0 ? MAX + 1 : MAX + 2 ))
 
 ID="hook-$(date +%s)-$$"
+# If input is already JSON with a "text" key, pass through; otherwise wrap it
+if echo "$MSG" | jq -e '.text' >/dev/null 2>&1; then
+  JSON_CONTENT="$MSG"
+else
+  JSON_CONTENT=$(jq -n --arg text "$MSG" '{"text": $text}')
+fi
 
 sqlite3 "$OUTDB" "
   PRAGMA journal_mode=DELETE;
   INSERT INTO messages_out (id, seq, timestamp, kind, channel_type, platform_id, content)
-  VALUES ('${ID}', ${SEQ}, datetime('now'), '${KIND}', '${CH_TYPE}', '${PLAT_ID}', '$(echo "$MSG" | sed "s/'/''/g")');
+  VALUES ('${ID}', ${SEQ}, datetime('now'), '${KIND}', '${CH_TYPE}', '${PLAT_ID}', '$(echo "$JSON_CONTENT" | sed "s/'/''/g")');
 " 2>/dev/null || true

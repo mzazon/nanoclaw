@@ -17,6 +17,8 @@ CTX_WINDOW=$(echo "$INPUT" | jq -r '.context_window.context_window_size // 0')
 COST=$(echo "$INPUT" | jq -r '.cost.total_cost_usd // 0')
 RATE_PCT=$(echo "$INPUT" | jq -r '.rate_limits.five_hour.used_percentage // empty')
 RATE_RESETS=$(echo "$INPUT" | jq -r '.rate_limits.five_hour.resets_at // empty')
+RATE_7D_PCT=$(echo "$INPUT" | jq -r '.rate_limits.seven_day.used_percentage // empty')
+RATE_7D_RESETS=$(echo "$INPUT" | jq -r '.rate_limits.seven_day.resets_at // empty')
 EFFORT=$(echo "$INPUT" | jq -r '.effort.level // "unknown"')
 
 # ---- Write state file ----
@@ -30,6 +32,8 @@ jq -n \
   --argjson cost "${COST:-0}" \
   --arg rate_pct "${RATE_PCT:-}" \
   --arg rate_resets "${RATE_RESETS:-}" \
+  --arg rate_7d_pct "${RATE_7D_PCT:-}" \
+  --arg rate_7d_resets "${RATE_7D_RESETS:-}" \
   --arg effort "$EFFORT" \
   '{
     timestamp: $ts,
@@ -40,6 +44,8 @@ jq -n \
     cost_usd: $cost,
     rate_limit_pct: (if $rate_pct == "" then null else ($rate_pct | tonumber) end),
     rate_limit_resets_at: (if $rate_resets == "" then null else ($rate_resets | tonumber) end),
+    rate_limit_7d_pct: (if $rate_7d_pct == "" then null else ($rate_7d_pct | tonumber) end),
+    rate_limit_7d_resets_at: (if $rate_7d_resets == "" then null else ($rate_7d_resets | tonumber) end),
     effort: $effort
   }' > "$STATUS_FILE"
 
@@ -88,6 +94,9 @@ fi
 # ---- TUI one-liner ----
 LIMIT_PART=""
 if [ -n "$RATE_PCT" ]; then
-  LIMIT_PART=" limit:${RATE_PCT%.*}%"
+  LIMIT_PART=" 5h:${RATE_PCT%.*}%"
+fi
+if [ -n "$RATE_7D_PCT" ]; then
+  LIMIT_PART="${LIMIT_PART} 7d:${RATE_7D_PCT%.*}%"
 fi
 echo "[${MODEL}] ctx:${CTX_INT}% cost:\$${COST}${LIMIT_PART}"

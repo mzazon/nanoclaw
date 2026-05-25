@@ -73,6 +73,8 @@ interface CcStatusData {
   cost_usd: number;
   rate_limit_pct: number | null;
   rate_limit_resets_at: number | null;
+  rate_limit_7d_pct: number | null;
+  rate_limit_7d_resets_at: number | null;
   model: string;
 }
 
@@ -87,6 +89,8 @@ function readCcStatus(sessDir: string): CcStatusData | null {
       cost_usd: raw.cost_usd ?? 0,
       rate_limit_pct: raw.rate_limit_pct ?? null,
       rate_limit_resets_at: raw.rate_limit_resets_at ?? null,
+      rate_limit_7d_pct: raw.rate_limit_7d_pct ?? null,
+      rate_limit_7d_resets_at: raw.rate_limit_7d_resets_at ?? null,
       model: raw.model ?? 'unknown',
     };
   } catch {
