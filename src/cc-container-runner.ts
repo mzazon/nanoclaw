@@ -136,9 +136,9 @@ export function buildCcContainerEnv(
   const envPairs: string[][] = [];
 
   envPairs.push(['-e', `TZ=${TIMEZONE}`]);
-  // api.anthropic.com bypasses proxy — CC uses OAuth token directly, proxy breaks it
-  envPairs.push(['-e', 'NO_PROXY=host.docker.internal,localhost,127.0.0.1,api.anthropic.com']);
-  envPairs.push(['-e', 'no_proxy=host.docker.internal,localhost,127.0.0.1,api.anthropic.com']);
+  // LOCAL-015: Anthropic API goes through OneCLI proxy (injects sk-ant-* from vault).
+  envPairs.push(['-e', 'NO_PROXY=host.docker.internal,localhost,127.0.0.1']);
+  envPairs.push(['-e', 'no_proxy=host.docker.internal,localhost,127.0.0.1']);
   envPairs.push(['-e', 'NANOCLAW_SESSION_DIR=/workspaces/.nanoclaw']);
   envPairs.push(['-e', `NANOCLAW_AGENT_GROUP_ID=${agentGroup.id}`]);
 

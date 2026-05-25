@@ -405,9 +405,7 @@ async function sweepSession(session: Session): Promise<void> {
       // CC-container status file: log metrics every sweep tick.
       const configRow = getContainerConfig(agentGroup.id);
       const ccStatus =
-        configRow?.runtime === 'cc-container'
-          ? readCcStatus(sessionDir(agentGroup.id, session.id))
-          : null;
+        configRow?.runtime === 'cc-container' ? readCcStatus(sessionDir(agentGroup.id, session.id)) : null;
       if (ccStatus) {
         log.info('cc-container status', {
           sessionId: session.id,

@@ -519,20 +519,15 @@ describe('executeAction', () => {
     const latch = freshLatch();
     const killProcess = vi.fn();
 
-    executeAction(
-      'rate-limit-schedule',
-      { signal: 'rate-limit', limitType: 'session', resetSpec: null },
-      latch,
-      {
-        sessionId: 's1',
-        sessionEpoch: 's1:1',
-        ptyWrite: () => {},
-        killProcess,
-        notify: () => {},
-        getEntry: () => ({ sessionEpoch: 's1:1' }),
-        statusResetAt: 1748170800,
-      },
-    );
+    executeAction('rate-limit-schedule', { signal: 'rate-limit', limitType: 'session', resetSpec: null }, latch, {
+      sessionId: 's1',
+      sessionEpoch: 's1:1',
+      ptyWrite: () => {},
+      killProcess,
+      notify: () => {},
+      getEntry: () => ({ sessionEpoch: 's1:1' }),
+      statusResetAt: 1748170800,
+    });
 
     expect(latch.rateLimitScheduled).not.toBeNull();
     expect(latch.rateLimitScheduled!.resetAt).toBe(1748170800000);

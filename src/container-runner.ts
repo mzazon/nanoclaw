@@ -10,7 +10,6 @@ import path from 'path';
 import { OneCLI } from '@onecli-sh/sdk';
 
 import {
-  CC_CONTAINER_OAUTH_TOKEN,
   CONTAINER_IMAGE,
   CONTAINER_IMAGE_BASE,
   CONTAINER_INSTALL_LABEL,
@@ -248,10 +247,10 @@ async function spawnContainer(session: Session): Promise<void> {
       args.push('-e', 'NANOCLAW_NO_CONTINUE=1');
     }
 
-    // OneCLI gateway — injects HTTPS_PROXY + CA cert so MCP servers inside
-    // the container get credential injection. Must run BEFORE the OAuth token
-    // push: the SDK sets CLAUDE_CODE_OAUTH_TOKEN=placeholder which we need to
-    // overwrite with the real token.
+    // OneCLI gateway — injects HTTPS_PROXY + CA cert + CLAUDE_CODE_OAUTH_TOKEN.
+    // The proxy intercepts api.anthropic.com traffic and injects the sk-ant-* key
+    // from the vault. CLAUDE_CODE_OAUTH_TOKEN=placeholder suppresses CC's login
+    // prompt; the proxy replaces the Authorization header on the wire. LOCAL-015
     if (ONECLI_URL && ONECLI_API_KEY) {
       await onecli.ensureAgent({ name: agentGroup.name, identifier: agentIdentifier });
       const onecliApplied = await onecli.applyContainerConfig(args, { addHostMapping: false, agent: agentIdentifier });
@@ -260,13 +259,6 @@ async function spawnContainer(session: Session): Promise<void> {
       } else {
         log.warn("OneCLI gateway not applied to cc-container — MCP servers won't have credentials", { containerName });
       }
-    }
-
-    // CC auth: OAuth token for Anthropic API (subscription billing).
-    // Pushed AFTER OneCLI apply — the SDK injects CLAUDE_CODE_OAUTH_TOKEN=placeholder
-    // which Docker would use (last -e wins) if we pushed our real token first.
-    if (CC_CONTAINER_OAUTH_TOKEN) {
-      args.push('-e', `CLAUDE_CODE_OAUTH_TOKEN=${CC_CONTAINER_OAUTH_TOKEN}`);
     }
 
     args.push(...hostGatewayArgs());
