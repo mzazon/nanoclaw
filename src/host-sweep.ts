@@ -385,7 +385,9 @@ async function sweepSession(session: Session): Promise<void> {
             markerAgeMs: markerStaleMs,
             spawnedAt: interactiveEntry.spawnedAt,
           });
-          try { fs.rmSync(markerPath, { force: true }); } catch {}
+          try {
+            fs.rmSync(markerPath, { force: true });
+          } catch {}
           markerExists = false;
         }
       } catch (err) {
@@ -405,7 +407,9 @@ async function sweepSession(session: Session): Promise<void> {
         );
         killContainer(session.id, `bridge-unresponsive-${markerStaleMs}ms`);
         // Clean the marker after kill to prevent crash-loop on next spawn.
-        try { fs.rmSync(markerPath, { force: true }); } catch {}
+        try {
+          fs.rmSync(markerPath, { force: true });
+        } catch {}
         // Skip the rest of the sweep tick for this session — the container is
         // dying, decideAction would just race with that. Recurrence/etc. will
         // pick up on the next tick once the container is fully gone.

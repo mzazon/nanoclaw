@@ -9,12 +9,12 @@ LATCH_FILE="${SESSION_DIR}/.statusline-alerted"
 HOOKS_DIR="$(dirname "$0")"
 
 INPUT=$(cat)
-
 MODEL=$(echo "$INPUT" | jq -r '.model.display_name // "unknown"')
 CTX_PCT=$(echo "$INPUT" | jq -r '.context_window.used_percentage // 0')
-CTX_TOKENS=$(echo "$INPUT" | jq -r '.context_window.total_input_tokens // 0')
 CTX_WINDOW=$(echo "$INPUT" | jq -r '.context_window.context_window_size // 0')
-COST=$(echo "$INPUT" | jq -r '.cost.total_cost_usd // 0')
+CTX_TOKENS=$(echo "$CTX_PCT $CTX_WINDOW" | awk '{printf "%d", $1 * $2 / 100}')
+COST_RAW=$(echo "$INPUT" | jq -r '.cost.total_cost_usd // 0')
+COST=$(printf "%.2f" "$COST_RAW")
 RATE_PCT=$(echo "$INPUT" | jq -r '.rate_limits.five_hour.used_percentage // empty')
 RATE_RESETS=$(echo "$INPUT" | jq -r '.rate_limits.five_hour.resets_at // empty')
 RATE_7D_PCT=$(echo "$INPUT" | jq -r '.rate_limits.seven_day.used_percentage // empty')
