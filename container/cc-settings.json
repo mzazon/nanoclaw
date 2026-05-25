@@ -11,6 +11,37 @@
             "command": "~/.claude/hooks/pretool-deny-picker.sh $TOOL_NAME"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/pretool-vis.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostToolBatch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/posttoolbatch-vis.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/tool-vis-stop.sh",
+            "timeout": 3
+          }
+        ]
       }
     ],
     "PreCompact": [
