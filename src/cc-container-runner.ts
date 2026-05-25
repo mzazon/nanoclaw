@@ -149,9 +149,8 @@ export function buildCcContainerEnv(
     envPairs.push(['-e', `NANOCLAW_MODEL=${containerConfig.model}`]);
   }
 
-  // Tool surface minimization: scheduling disabled by default for cc-container.
   // NCL gated by cli_scope — enabled when scope is 'group' or 'global' (needed for self-mod).
-  envPairs.push(['-e', 'NANOCLAW_BRIDGE_SCHEDULING=0']);
+  // Scheduling enabled by default (same as interactive runtime).
   let cliScope = 'disabled';
   try {
     const row = getDb()

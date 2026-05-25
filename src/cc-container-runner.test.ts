@@ -87,14 +87,14 @@ describe('buildCcContainerEnv', () => {
     expect(flat).toContain('NANOCLAW_AGENT_GROUP_ID=ag-test');
   });
 
-  it('disables scheduling and NCL by default', () => {
+  it('disables NCL by default, scheduling enabled', () => {
     const pairs = buildCcContainerEnv(
       group,
       { mcpServers: {}, packages: { apt: [], npm: [] }, additionalMounts: [], skills: 'all' },
       {},
     );
     const flat = pairs.map((p) => p[1]);
-    expect(flat).toContain('NANOCLAW_BRIDGE_SCHEDULING=0');
+    expect(flat.some((v) => v.startsWith('NANOCLAW_BRIDGE_SCHEDULING'))).toBe(false);
     expect(flat).toContain('NANOCLAW_BRIDGE_NCL=0');
   });
 
