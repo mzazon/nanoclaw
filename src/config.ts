@@ -55,6 +55,12 @@ export function getTriggerPattern(trigger?: string): RegExp {
 
 export const TRIGGER_PATTERN = buildTriggerPattern(DEFAULT_TRIGGER);
 
+// Observability
+export const NANOCLAW_OTEL_ENDPOINT = process.env.NANOCLAW_OTEL_ENDPOINT || 'http://host.docker.internal:4317';
+export const NANOCLAW_OTEL_DISABLE = process.env.NANOCLAW_OTEL_DISABLE === '1';
+export const NANOCLAW_DEBUG = process.env.NANOCLAW_DEBUG === '1';
+export const NANOCLAW_ALERT_WEBHOOK = process.env.NANOCLAW_ALERT_WEBHOOK || '';
+
 // Timezone for scheduled tasks, message formatting, etc.
 // Validates each candidate is a real IANA identifier before accepting.
 function resolveConfigTimezone(): string {

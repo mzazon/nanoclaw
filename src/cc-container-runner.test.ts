@@ -108,6 +108,35 @@ describe('buildCcContainerEnv', () => {
     expect(flat).toContain('NANOCLAW_MODEL=opus');
   });
 
+  it('includes OTEL telemetry vars when not disabled', () => {
+    delete process.env.NANOCLAW_OTEL_DISABLE;
+    const pairs = buildCcContainerEnv(
+      group,
+      { mcpServers: {}, packages: { apt: [], npm: [] }, additionalMounts: [], skills: 'all' },
+      {},
+    );
+    const flat = pairs.map((p) => p[1]);
+    expect(flat).toContain('CLAUDE_CODE_ENABLE_TELEMETRY=1');
+    expect(flat).toContain('OTEL_METRICS_EXPORTER=otlp');
+    expect(flat).toContain('OTEL_TRACES_EXPORTER=otlp');
+    expect(flat.find((v) => v.startsWith('OTEL_EXPORTER_OTLP_ENDPOINT='))).toBeTruthy();
+    expect(flat.find((v) => v.startsWith('OTEL_RESOURCE_ATTRIBUTES='))?.includes('service.name=cc-container')).toBe(
+      true,
+    );
+    expect(flat.find((v) => v.startsWith('OTEL_RESOURCE_ATTRIBUTES='))?.includes('agent.group=TestBot')).toBe(true);
+  });
+
+  it('OTEL uses configured endpoint', () => {
+    const pairs = buildCcContainerEnv(
+      group,
+      { mcpServers: {}, packages: { apt: [], npm: [] }, additionalMounts: [], skills: 'all' },
+      {},
+    );
+    const flat = pairs.map((p) => p[1]);
+    const endpoint = flat.find((v) => v.startsWith('OTEL_EXPORTER_OTLP_ENDPOINT='));
+    expect(endpoint).toContain('http://');
+  });
+
   it('includes provider env vars', () => {
     const contribution: ProviderContainerContribution = { env: { CUSTOM: 'val' } };
     const pairs = buildCcContainerEnv(

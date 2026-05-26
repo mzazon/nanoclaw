@@ -3,7 +3,7 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-import { GROUPS_DIR, TIMEZONE } from './config.js';
+import { GROUPS_DIR, TIMEZONE, NANOCLAW_OTEL_ENDPOINT, NANOCLAW_OTEL_DISABLE, NANOCLAW_DEBUG } from './config.js';
 import { getDb, hasTable } from './db/connection.js';
 import { CONTAINER_RUNTIME_BIN } from './container-runtime.js';
 import type { ContainerConfig, McpServerConfig } from './container-config.js';
@@ -183,6 +183,34 @@ export function buildCcContainerEnv(
     for (const [key, value] of Object.entries(providerContribution.env)) {
       envPairs.push(['-e', `${key}=${value}`]);
     }
+  }
+
+  // OTEL telemetry — always on unless explicitly disabled (LOCAL-016)
+  if (!NANOCLAW_OTEL_DISABLE) {
+    envPairs.push(['-e', 'CLAUDE_CODE_ENABLE_TELEMETRY=1']);
+    envPairs.push(['-e', 'CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1']);
+    envPairs.push(['-e', 'OTEL_METRICS_EXPORTER=otlp']);
+    envPairs.push(['-e', 'OTEL_LOGS_EXPORTER=otlp']);
+    envPairs.push(['-e', 'OTEL_TRACES_EXPORTER=otlp']);
+    envPairs.push(['-e', 'OTEL_EXPORTER_OTLP_PROTOCOL=grpc']);
+    envPairs.push(['-e', `OTEL_EXPORTER_OTLP_ENDPOINT=${NANOCLAW_OTEL_ENDPOINT}`]);
+    const resAttrs = [
+      'service.name=cc-container',
+      `agent.group=${agentGroup.name || agentGroup.id}`,
+    ].join(',');
+    envPairs.push(['-e', `OTEL_RESOURCE_ATTRIBUTES=${resAttrs}`]);
+    if (NANOCLAW_DEBUG) {
+      envPairs.push(['-e', 'OTEL_LOG_USER_PROMPTS=1']);
+      envPairs.push(['-e', 'OTEL_LOG_TOOL_DETAILS=1']);
+      envPairs.push(['-e', 'OTEL_LOG_TOOL_CONTENT=1']);
+      envPairs.push(['-e', 'OTEL_METRIC_EXPORT_INTERVAL=10000']);
+      envPairs.push(['-e', 'OTEL_LOGS_EXPORT_INTERVAL=3000']);
+    }
+  }
+
+  // Debug mode — pass to container so entrypoint can enable CC --debug-file
+  if (NANOCLAW_DEBUG) {
+    envPairs.push(['-e', 'NANOCLAW_DEBUG=1']);
   }
 
   return envPairs;
