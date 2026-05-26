@@ -46,6 +46,7 @@ import {
   syncProcessingAcks,
   type ContainerState,
 } from './db/session-db.js';
+import { checkStuckSession } from './alert.js';
 import { applyHostPreTaskScripts } from './host-task-script.js';
 import { getLatches } from './interactive-rate-limit.js';
 import type { RespawnFlags } from './interactive-runner.js';
@@ -502,6 +503,9 @@ async function sweepSession(session: Session): Promise<void> {
           interactiveEntry.ptyBuffer.data = '';
         }
       }
+
+      // Stuck-session alert (Tier 1): fires direct Slack webhook after 15 min
+      checkStuckSession(session.id, action);
     }
 
     // 3. Running-container SLA: absolute ceiling + per-claim stuck rules.
