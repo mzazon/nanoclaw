@@ -183,24 +183,28 @@ function safeParseContent(raw: string): { text?: string; sender?: string; sender
  */
 export async function routeInbound(event: InboundEvent): Promise<void> {
   const tracer = getTracer('router');
-  return tracer.startActiveSpan('nanoclaw.message_route', {
-    attributes: {
-      'channel.type': event.channelType,
-      'messaging.group.platform_id': event.platformId,
-      'message.kind': event.message.kind,
-      'message.is_mention': event.message.isMention ?? false,
+  return tracer.startActiveSpan(
+    'nanoclaw.message_route',
+    {
+      attributes: {
+        'channel.type': event.channelType,
+        'messaging.group.platform_id': event.platformId,
+        'message.kind': event.message.kind,
+        'message.is_mention': event.message.isMention ?? false,
+      },
     },
-  }, async (routeSpan) => {
-    try {
-      await routeInboundInner(event, tracer);
-    } catch (err) {
-      routeSpan.recordException(err as Error);
-      routeSpan.setStatus({ code: SpanStatusCode.ERROR });
-      throw err;
-    } finally {
-      routeSpan.end();
-    }
-  });
+    async (routeSpan) => {
+      try {
+        await routeInboundInner(event, tracer);
+      } catch (err) {
+        routeSpan.recordException(err as Error);
+        routeSpan.setStatus({ code: SpanStatusCode.ERROR });
+        throw err;
+      } finally {
+        routeSpan.end();
+      }
+    },
+  );
 }
 
 async function routeInboundInner(event: InboundEvent, tracer: ReturnType<typeof getTracer>): Promise<void> {
@@ -295,17 +299,21 @@ async function routeInboundInner(event: InboundEvent, tracer: ReturnType<typeof 
   // 2. Sender resolution (permissions module upserts the users row as a
   //    side effect so later role/access lookups find a real record).
   //    Without the module, userId is null — downstream tolerates it.
-  const userId: string | null = tracer.startActiveSpan('nanoclaw.sender_resolve', {
-    attributes: { 'channel.type': event.channelType },
-  }, (child) => {
-    try {
-      const id = senderResolver ? senderResolver(event) : null;
-      if (id) child.setAttribute('user.id', id);
-      return id;
-    } finally {
-      child.end();
-    }
-  });
+  const userId: string | null = tracer.startActiveSpan(
+    'nanoclaw.sender_resolve',
+    {
+      attributes: { 'channel.type': event.channelType },
+    },
+    (child) => {
+      try {
+        const id = senderResolver ? senderResolver(event) : null;
+        if (id) child.setAttribute('user.id', id);
+        return id;
+      } finally {
+        child.end();
+      }
+    },
+  );
 
   // 3. Fetch wired agents in full (we already know the count is > 0; now
   //    we need their actual rows for fan-out).
@@ -336,18 +344,22 @@ async function routeInboundInner(event: InboundEvent, tracer: ReturnType<typeof 
 
     const engages = evaluateEngage(agent, messageText, isMention, mg, event.threadId);
 
-    const { accessOk, scopeOk } = tracer.startActiveSpan('nanoclaw.access_gate', {
-      attributes: { 'agent.group': agent.agent_group_id, 'user.id': userId ?? '' },
-    }, (gateSpan) => {
-      try {
-        const aOk = engages && (!accessGate || accessGate(event, userId, mg, agent.agent_group_id).allowed);
-        const sOk = engages && (!senderScopeGate || senderScopeGate(event, userId, mg, agent).allowed);
-        gateSpan.setAttribute('access.allowed', !!(engages && aOk && sOk));
-        return { accessOk: aOk, scopeOk: sOk };
-      } finally {
-        gateSpan.end();
-      }
-    });
+    const { accessOk, scopeOk } = tracer.startActiveSpan(
+      'nanoclaw.access_gate',
+      {
+        attributes: { 'agent.group': agent.agent_group_id, 'user.id': userId ?? '' },
+      },
+      (gateSpan) => {
+        try {
+          const aOk = engages && (!accessGate || accessGate(event, userId, mg, agent.agent_group_id).allowed);
+          const sOk = engages && (!senderScopeGate || senderScopeGate(event, userId, mg, agent).allowed);
+          gateSpan.setAttribute('access.allowed', !!(engages && aOk && sOk));
+          return { accessOk: aOk, scopeOk: sOk };
+        } finally {
+          gateSpan.end();
+        }
+      },
+    );
 
     if (engages && accessOk && scopeOk) {
       // Per-MGA threading policy: 'flat' nulls threadId, 'thread' preserves it.
@@ -487,18 +499,22 @@ async function deliverToAgent(
   }
 
   const tracer = getTracer('router');
-  const { session, created } = tracer.startActiveSpan('nanoclaw.session_resolve', {
-    attributes: { 'agent.group': agent.agent_group_id, 'session.mode': effectiveSessionMode },
-  }, (child) => {
-    try {
-      const result = resolveSession(agent.agent_group_id, mg.id, event.threadId, effectiveSessionMode);
-      child.setAttribute('session.id', result.session.id);
-      child.setAttribute('session.created', result.created);
-      return result;
-    } finally {
-      child.end();
-    }
-  });
+  const { session, created } = tracer.startActiveSpan(
+    'nanoclaw.session_resolve',
+    {
+      attributes: { 'agent.group': agent.agent_group_id, 'session.mode': effectiveSessionMode },
+    },
+    (child) => {
+      try {
+        const result = resolveSession(agent.agent_group_id, mg.id, event.threadId, effectiveSessionMode);
+        child.setAttribute('session.id', result.session.id);
+        child.setAttribute('session.created', result.created);
+        return result;
+      } finally {
+        child.end();
+      }
+    },
+  );
   trace.getActiveSpan()?.setAttribute('session.id', session.id);
 
   // The inbound row's (channel_type, platform_id, thread_id) is the address
@@ -576,17 +592,21 @@ async function deliverToAgent(
     );
     const freshSession = getSession(session.id);
     if (freshSession) {
-      await tracer.startActiveSpan('nanoclaw.container_wake', {
-        attributes: { 'session.id': session.id, 'agent.group': agent.agent_group_id },
-      }, async (wakeSpan) => {
-        try {
-          const woke = await wakeContainer(freshSession);
-          wakeSpan.setAttribute('wake.success', woke);
-          if (!woke) stopTypingRefresh(freshSession.id);
-        } finally {
-          wakeSpan.end();
-        }
-      });
+      await tracer.startActiveSpan(
+        'nanoclaw.container_wake',
+        {
+          attributes: { 'session.id': session.id, 'agent.group': agent.agent_group_id },
+        },
+        async (wakeSpan) => {
+          try {
+            const woke = await wakeContainer(freshSession);
+            wakeSpan.setAttribute('wake.success', woke);
+            if (!woke) stopTypingRefresh(freshSession.id);
+          } finally {
+            wakeSpan.end();
+          }
+        },
+      );
     }
   }
 }

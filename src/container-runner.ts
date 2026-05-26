@@ -148,19 +148,23 @@ export function wakeContainer(session: Session): Promise<boolean> {
 
 async function spawnContainer(session: Session): Promise<void> {
   const tracer = getTracer('container');
-  return tracer.startActiveSpan('nanoclaw.container_spawn', {
-    attributes: { 'session.id': session.id, 'agent.group': session.agent_group_id },
-  }, async (spawnSpan) => {
-    try {
-      await spawnContainerInner(session, spawnSpan);
-    } catch (err) {
-      spawnSpan.recordException(err as Error);
-      spawnSpan.setStatus({ code: SpanStatusCode.ERROR });
-      throw err;
-    } finally {
-      spawnSpan.end();
-    }
-  });
+  return tracer.startActiveSpan(
+    'nanoclaw.container_spawn',
+    {
+      attributes: { 'session.id': session.id, 'agent.group': session.agent_group_id },
+    },
+    async (spawnSpan) => {
+      try {
+        await spawnContainerInner(session, spawnSpan);
+      } catch (err) {
+        spawnSpan.recordException(err as Error);
+        spawnSpan.setStatus({ code: SpanStatusCode.ERROR });
+        throw err;
+      } finally {
+        spawnSpan.end();
+      }
+    },
+  );
 }
 
 async function spawnContainerInner(session: Session, spawnSpan: import('@opentelemetry/api').Span): Promise<void> {
@@ -273,18 +277,22 @@ async function spawnContainerInner(session: Session, spawnSpan: import('@opentel
     // prompt; the proxy replaces the Authorization header on the wire. LOCAL-015
     if (ONECLI_URL && ONECLI_API_KEY) {
       const onecliTracer = getTracer('container');
-      await onecliTracer.startActiveSpan('nanoclaw.onecli_ensure', {
-        attributes: { 'agent.name': agentGroup.name ?? '', 'agent.identifier': agentIdentifier },
-      }, async (onecliSpan) => {
-        try {
-          await onecli.ensureAgent({ name: agentGroup.name, identifier: agentIdentifier });
-        } catch (err) {
-          onecliSpan.recordException(err as Error);
-          log.warn('OneCLI ensureAgent failed (non-fatal)', { err });
-        } finally {
-          onecliSpan.end();
-        }
-      });
+      await onecliTracer.startActiveSpan(
+        'nanoclaw.onecli_ensure',
+        {
+          attributes: { 'agent.name': agentGroup.name ?? '', 'agent.identifier': agentIdentifier },
+        },
+        async (onecliSpan) => {
+          try {
+            await onecli.ensureAgent({ name: agentGroup.name, identifier: agentIdentifier });
+          } catch (err) {
+            onecliSpan.recordException(err as Error);
+            log.warn('OneCLI ensureAgent failed (non-fatal)', { err });
+          } finally {
+            onecliSpan.end();
+          }
+        },
+      );
       const onecliApplied = await onecli.applyContainerConfig(args, { addHostMapping: false, agent: agentIdentifier });
       if (onecliApplied) {
         log.info('OneCLI gateway applied to cc-container', { containerName });
@@ -421,33 +429,37 @@ export function killContainer(
   if (!entry) return;
 
   const tracer = getTracer('container');
-  tracer.startActiveSpan('nanoclaw.container_kill', {
-    attributes: { 'session.id': sessionId, 'kill.reason': reason, 'container.name': entry.containerName ?? '' },
-  }, (killSpan) => {
-    try {
-      if (respawnFlags) {
-        pendingRespawnFlags.set(sessionId, respawnFlags);
-        killSpan.setAttribute('respawn.requested', true);
-      }
-
-      if (onExit) {
-        entry.process.once('close', onExit);
-      }
-
-      log.info('Killing container', { sessionId, reason, containerName: entry.containerName, respawnFlags });
-      if (entry.isHostProcess) {
-        entry.process.kill('SIGTERM');
-        return;
-      }
+  tracer.startActiveSpan(
+    'nanoclaw.container_kill',
+    {
+      attributes: { 'session.id': sessionId, 'kill.reason': reason, 'container.name': entry.containerName ?? '' },
+    },
+    (killSpan) => {
       try {
-        stopContainer(entry.containerName);
-      } catch {
-        entry.process.kill('SIGKILL');
+        if (respawnFlags) {
+          pendingRespawnFlags.set(sessionId, respawnFlags);
+          killSpan.setAttribute('respawn.requested', true);
+        }
+
+        if (onExit) {
+          entry.process.once('close', onExit);
+        }
+
+        log.info('Killing container', { sessionId, reason, containerName: entry.containerName, respawnFlags });
+        if (entry.isHostProcess) {
+          entry.process.kill('SIGTERM');
+          return;
+        }
+        try {
+          stopContainer(entry.containerName);
+        } catch {
+          entry.process.kill('SIGKILL');
+        }
+      } finally {
+        killSpan.end();
       }
-    } finally {
-      killSpan.end();
-    }
-  });
+    },
+  );
 }
 
 /**
@@ -620,15 +632,19 @@ async function buildContainerArgs(
   // message pending, and the next sweep tick retries.
   if (agentIdentifier) {
     const onecliTracer = getTracer('container');
-    await onecliTracer.startActiveSpan('nanoclaw.onecli_ensure', {
-      attributes: { 'agent.name': agentGroup.name ?? '', 'agent.identifier': agentIdentifier },
-    }, async (onecliSpan) => {
-      try {
-        await onecli.ensureAgent({ name: agentGroup.name, identifier: agentIdentifier });
-      } finally {
-        onecliSpan.end();
-      }
-    });
+    await onecliTracer.startActiveSpan(
+      'nanoclaw.onecli_ensure',
+      {
+        attributes: { 'agent.name': agentGroup.name ?? '', 'agent.identifier': agentIdentifier },
+      },
+      async (onecliSpan) => {
+        try {
+          await onecli.ensureAgent({ name: agentGroup.name, identifier: agentIdentifier });
+        } finally {
+          onecliSpan.end();
+        }
+      },
+    );
   }
   const onecliApplied = await onecli.applyContainerConfig(args, { addHostMapping: false, agent: agentIdentifier });
   if (!onecliApplied) {

@@ -202,51 +202,55 @@ async function drainSession(session: Session): Promise<void> {
     migrateDeliveredTable(inDb);
 
     const tracer = getTracer('delivery');
-    await tracer.startActiveSpan('nanoclaw.delivery_poll', {
-      attributes: { 'session.id': session.id, 'message.count': undelivered.length },
-    }, async (pollSpan) => {
-      try {
-        for (const msg of undelivered) {
-          try {
-            const platformMsgId = await deliverOneMessage(tracer, msg, session, inDb);
-            markDelivered(inDb, msg.id, platformMsgId ?? null);
-            deliveryAttempts.delete(msg.id);
-
-            if (msg.kind !== 'system' && msg.channel_type !== 'agent') {
-              pauseTypingRefreshAfterDelivery(session.id);
-            }
-          } catch (err) {
-            const attempts = (deliveryAttempts.get(msg.id) ?? 0) + 1;
-            deliveryAttempts.set(msg.id, attempts);
-            if (attempts >= MAX_DELIVERY_ATTEMPTS) {
-              log.error('Message delivery failed permanently, giving up', {
-                messageId: msg.id,
-                sessionId: session.id,
-                attempts,
-                err,
-              });
-              markDeliveryFailed(inDb, msg.id);
+    await tracer.startActiveSpan(
+      'nanoclaw.delivery_poll',
+      {
+        attributes: { 'session.id': session.id, 'message.count': undelivered.length },
+      },
+      async (pollSpan) => {
+        try {
+          for (const msg of undelivered) {
+            try {
+              const platformMsgId = await deliverOneMessage(tracer, msg, session, inDb);
+              markDelivered(inDb, msg.id, platformMsgId ?? null);
               deliveryAttempts.delete(msg.id);
-              notifyDeliveryFailure(session, msg.id);
-            } else {
-              log.warn('Message delivery failed, will retry', {
-                messageId: msg.id,
-                sessionId: session.id,
-                attempt: attempts,
-                maxAttempts: MAX_DELIVERY_ATTEMPTS,
-                err,
-              });
+
+              if (msg.kind !== 'system' && msg.channel_type !== 'agent') {
+                pauseTypingRefreshAfterDelivery(session.id);
+              }
+            } catch (err) {
+              const attempts = (deliveryAttempts.get(msg.id) ?? 0) + 1;
+              deliveryAttempts.set(msg.id, attempts);
+              if (attempts >= MAX_DELIVERY_ATTEMPTS) {
+                log.error('Message delivery failed permanently, giving up', {
+                  messageId: msg.id,
+                  sessionId: session.id,
+                  attempts,
+                  err,
+                });
+                markDeliveryFailed(inDb, msg.id);
+                deliveryAttempts.delete(msg.id);
+                notifyDeliveryFailure(session, msg.id);
+              } else {
+                log.warn('Message delivery failed, will retry', {
+                  messageId: msg.id,
+                  sessionId: session.id,
+                  attempt: attempts,
+                  maxAttempts: MAX_DELIVERY_ATTEMPTS,
+                  err,
+                });
+              }
             }
           }
+        } catch (err) {
+          pollSpan.recordException(err as Error);
+          pollSpan.setStatus({ code: SpanStatusCode.ERROR });
+          throw err;
+        } finally {
+          pollSpan.end();
         }
-      } catch (err) {
-        pollSpan.recordException(err as Error);
-        pollSpan.setStatus({ code: SpanStatusCode.ERROR });
-        throw err;
-      } finally {
-        pollSpan.end();
-      }
-    });
+      },
+    );
   } finally {
     outDb.close();
     inDb.close();
@@ -271,23 +275,35 @@ function notifyDeliveryFailure(session: Session, messageId: string): void {
 
 async function deliverOneMessage(
   tracer: ReturnType<typeof getTracer>,
-  msg: { id: string; kind: string; platform_id: string | null; channel_type: string | null; thread_id: string | null; content: string; in_reply_to: string | null },
+  msg: {
+    id: string;
+    kind: string;
+    platform_id: string | null;
+    channel_type: string | null;
+    thread_id: string | null;
+    content: string;
+    in_reply_to: string | null;
+  },
   session: Session,
   inDb: Database.Database,
 ): Promise<string | undefined> {
-  return tracer.startActiveSpan('nanoclaw.delivery', {
-    attributes: { 'session.id': session.id, 'message.id': msg.id, 'message.kind': msg.kind },
-  }, async (msgSpan) => {
-    try {
-      return await deliverMessage(msg, session, inDb);
-    } catch (err) {
-      msgSpan.recordException(err as Error);
-      msgSpan.setStatus({ code: SpanStatusCode.ERROR });
-      throw err;
-    } finally {
-      msgSpan.end();
-    }
-  });
+  return tracer.startActiveSpan(
+    'nanoclaw.delivery',
+    {
+      attributes: { 'session.id': session.id, 'message.id': msg.id, 'message.kind': msg.kind },
+    },
+    async (msgSpan) => {
+      try {
+        return await deliverMessage(msg, session, inDb);
+      } catch (err) {
+        msgSpan.recordException(err as Error);
+        msgSpan.setStatus({ code: SpanStatusCode.ERROR });
+        throw err;
+      } finally {
+        msgSpan.end();
+      }
+    },
+  );
 }
 
 async function deliverMessage(
@@ -430,22 +446,30 @@ async function deliverMessage(
       : undefined;
 
   const deliveryTracer = getTracer('delivery');
-  const platformMsgId = await deliveryTracer.startActiveSpan('nanoclaw.adapter_send', {
-    attributes: { 'channel.type': msg.channel_type ?? '', 'platform.id': msg.platform_id ?? '', 'thread.id': msg.thread_id ?? '' },
-  }, async (sendSpan) => {
-    try {
-      return await deliveryAdapter!.deliver(
-        msg.channel_type!,
-        msg.platform_id!,
-        msg.thread_id,
-        msg.kind,
-        msg.content,
-        files,
-      );
-    } finally {
-      sendSpan.end();
-    }
-  });
+  const platformMsgId = await deliveryTracer.startActiveSpan(
+    'nanoclaw.adapter_send',
+    {
+      attributes: {
+        'channel.type': msg.channel_type ?? '',
+        'platform.id': msg.platform_id ?? '',
+        'thread.id': msg.thread_id ?? '',
+      },
+    },
+    async (sendSpan) => {
+      try {
+        return await deliveryAdapter!.deliver(
+          msg.channel_type!,
+          msg.platform_id!,
+          msg.thread_id,
+          msg.kind,
+          msg.content,
+          files,
+        );
+      } finally {
+        sendSpan.end();
+      }
+    },
+  );
 
   // Store the platform message ID for streaming edits
   if (content._streamingId && typeof content._streamingId === 'string') {
@@ -513,20 +537,24 @@ async function handleSystemAction(
   log.info('System action from agent', { sessionId: session.id, action });
 
   const tracer = getTracer('delivery');
-  await tracer.startActiveSpan('nanoclaw.system_action', {
-    attributes: { 'session.id': session.id, 'action.type': action },
-  }, async (span) => {
-    try {
-      const registered = actionHandlers.get(action);
-      if (registered) {
-        await registered(content, session, inDb);
-        return;
+  await tracer.startActiveSpan(
+    'nanoclaw.system_action',
+    {
+      attributes: { 'session.id': session.id, 'action.type': action },
+    },
+    async (span) => {
+      try {
+        const registered = actionHandlers.get(action);
+        if (registered) {
+          await registered(content, session, inDb);
+          return;
+        }
+        log.warn('Unknown system action', { action });
+      } finally {
+        span.end();
       }
-      log.warn('Unknown system action', { action });
-    } finally {
-      span.end();
-    }
-  });
+    },
+  );
 }
 
 export function stopDeliveryPolls(): void {
