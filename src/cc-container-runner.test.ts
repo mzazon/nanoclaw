@@ -108,22 +108,23 @@ describe('buildCcContainerEnv', () => {
     expect(flat).toContain('NANOCLAW_MODEL=opus');
   });
 
-  it('includes OTEL telemetry vars when not disabled', () => {
+  it('includes OTEL telemetry vars with session.id when not disabled', () => {
     delete process.env.NANOCLAW_OTEL_DISABLE;
     const pairs = buildCcContainerEnv(
       group,
       { mcpServers: {}, packages: { apt: [], npm: [] }, additionalMounts: [], skills: 'all' },
       {},
+      'sess-test-123',
     );
     const flat = pairs.map((p) => p[1]);
     expect(flat).toContain('CLAUDE_CODE_ENABLE_TELEMETRY=1');
     expect(flat).toContain('OTEL_METRICS_EXPORTER=otlp');
     expect(flat).toContain('OTEL_TRACES_EXPORTER=otlp');
     expect(flat.find((v) => v.startsWith('OTEL_EXPORTER_OTLP_ENDPOINT='))).toBeTruthy();
-    expect(flat.find((v) => v.startsWith('OTEL_RESOURCE_ATTRIBUTES='))?.includes('service.name=cc-container')).toBe(
-      true,
-    );
-    expect(flat.find((v) => v.startsWith('OTEL_RESOURCE_ATTRIBUTES='))?.includes('agent.group=TestBot')).toBe(true);
+    const resAttrs = flat.find((v) => v.startsWith('OTEL_RESOURCE_ATTRIBUTES='));
+    expect(resAttrs).toContain('service.name=cc-container');
+    expect(resAttrs).toContain('agent.group=TestBot');
+    expect(resAttrs).toContain('session.id=sess-test-123');
   });
 
   it('OTEL uses configured endpoint', () => {

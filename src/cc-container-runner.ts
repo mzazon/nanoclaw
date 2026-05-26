@@ -132,6 +132,7 @@ export function buildCcContainerEnv(
   agentGroup: AgentGroup,
   containerConfig: ContainerConfig,
   providerContribution: ProviderContainerContribution,
+  sessionId?: string,
 ): string[][] {
   const envPairs: string[][] = [];
 
@@ -197,6 +198,7 @@ export function buildCcContainerEnv(
     const resAttrs = [
       'service.name=cc-container',
       `agent.group=${agentGroup.name || agentGroup.id}`,
+      ...(sessionId ? [`session.id=${sessionId}`] : []),
     ].join(',');
     envPairs.push(['-e', `OTEL_RESOURCE_ATTRIBUTES=${resAttrs}`]);
     if (NANOCLAW_DEBUG) {

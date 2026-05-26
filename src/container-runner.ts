@@ -236,7 +236,7 @@ async function spawnContainer(session: Session): Promise<void> {
 
     const args: string[] = ['run', '--rm', '--name', containerName, '--label', CONTAINER_INSTALL_LABEL];
 
-    const envPairs = buildCcContainerEnv(agentGroup, containerConfig, contribution);
+    const envPairs = buildCcContainerEnv(agentGroup, containerConfig, contribution, session.id);
     for (const pair of envPairs) {
       args.push(...pair);
     }
