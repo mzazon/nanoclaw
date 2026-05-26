@@ -27,6 +27,7 @@
  *        → kill + reset this message + tries++. Semantics: "container
  *        claimed a message and went quiet past tolerance since the claim."
  */
+import { SpanStatusCode } from '@opentelemetry/api';
 import type Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
@@ -47,6 +48,7 @@ import {
   type ContainerState,
 } from './db/session-db.js';
 import { checkStuckSession } from './alert.js';
+import { getTracer } from './tracing.js';
 import { applyHostPreTaskScripts } from './host-task-script.js';
 import { getLatches } from './interactive-rate-limit.js';
 import type { RespawnFlags } from './interactive-runner.js';
@@ -262,14 +264,38 @@ async function sweep(): Promise<void> {
 
   try {
     const sessions = getActiveSessions();
-    for (const session of sessions) {
-      await sweepSession(session);
-    }
+    const tracer = getTracer('sweep');
+    await tracer.startActiveSpan('nanoclaw.sweep_tick', {
+      attributes: { 'session.count': sessions.length },
+    }, async (tickSpan) => {
+      try {
+        for (const session of sessions) {
+          await sweepSessionTraced(session, tracer);
+        }
+      } finally {
+        tickSpan.end();
+      }
+    });
   } catch (err) {
     log.error('Host sweep error', { err });
   }
 
   setTimeout(sweep, SWEEP_INTERVAL_MS);
+}
+
+async function sweepSessionTraced(session: Session, tracer: ReturnType<typeof getTracer>): Promise<void> {
+  return tracer.startActiveSpan('nanoclaw.sweep_session', {
+    attributes: { 'session.id': session.id, 'agent.group': session.agent_group_id },
+  }, async (span) => {
+    try {
+      await sweepSession(session);
+    } catch (err) {
+      span.recordException(err as Error);
+      span.setStatus({ code: SpanStatusCode.ERROR });
+    } finally {
+      span.end();
+    }
+  });
 }
 
 async function sweepSession(session: Session): Promise<void> {
@@ -295,8 +321,17 @@ async function sweepSession(session: Session): Promise<void> {
 
   try {
     // 1. Sync processing_ack → messages_in status
+    const tracer = getTracer('sweep');
     if (outDb) {
-      syncProcessingAcks(inDb, outDb);
+      tracer.startActiveSpan('nanoclaw.processing_ack', {
+        attributes: { 'session.id': session.id },
+      }, (ackSpan) => {
+        try {
+          syncProcessingAcks(inDb, outDb);
+        } finally {
+          ackSpan.end();
+        }
+      });
     }
 
     // 2. Wake a container if work is due and nothing is running. Ordered
@@ -360,13 +395,22 @@ async function sweepSession(session: Session): Promise<void> {
           `Interactive guard: signal=${scan.signal} limitType=${scan.limitType ?? '-'} percent=${scan.percent ?? '-'} session=${session.id} buffer=${JSON.stringify(interactiveEntry.ptyBuffer.data.slice(-2000))}`,
         );
       }
-      const hbMtime = heartbeatMtimeMs(agentGroup.id, session.id);
-      // No heartbeat yet = bridge hasn't started polling. Use process spawn
-      // time as baseline so the guard doesn't treat it as infinitely stale.
-      const hbStaleMs =
-        hbMtime === 0
-          ? Date.now() - (interactiveEntry.process.pid ? (interactiveEntry.spawnedAt ?? Date.now()) : Date.now())
-          : Date.now() - hbMtime;
+      const hbStaleMs = tracer.startActiveSpan('nanoclaw.heartbeat_check', {
+        attributes: { 'session.id': session.id },
+      }, (hbSpan) => {
+        try {
+          const hbMtime = heartbeatMtimeMs(agentGroup.id, session.id);
+          const staleMs =
+            hbMtime === 0
+              ? Date.now() - (interactiveEntry.process.pid ? (interactiveEntry.spawnedAt ?? Date.now()) : Date.now())
+              : Date.now() - hbMtime;
+          hbSpan.setAttribute('heartbeat.stale_ms', staleMs);
+          hbSpan.setAttribute('heartbeat.alive', true);
+          return staleMs;
+        } finally {
+          hbSpan.end();
+        }
+      });
 
       // Read bridge unresponsiveness marker (TOCTOU-safe: stat can race with
       // marker cleanup in the bridge; treat ENOENT as "no marker present").
@@ -417,12 +461,24 @@ async function sweepSession(session: Session): Promise<void> {
         return;
       }
 
-      const action = decideAction({
-        scan,
-        latch,
-        heartbeatStaleMs: hbStaleMs,
-        processAlive: true,
-        pendingMessages: dueCount,
+      const action = tracer.startActiveSpan('nanoclaw.guard_eval', {
+        attributes: { 'session.id': session.id },
+      }, (evalSpan) => {
+        try {
+          const result = decideAction({
+            scan,
+            latch,
+            heartbeatStaleMs: hbStaleMs,
+            processAlive: true,
+            pendingMessages: dueCount,
+          });
+          evalSpan.setAttribute('guard.action', result);
+          evalSpan.setAttribute('guard.signal', scan.signal ?? 'none');
+          evalSpan.setAttribute('guard.pending', dueCount);
+          return result;
+        } finally {
+          evalSpan.end();
+        }
       });
 
       // Guard evaluation debug: log every tick for full visibility
@@ -485,33 +541,41 @@ async function sweepSession(session: Session): Promise<void> {
         const containerName = getContainerName(session.id);
         const isCcContainerSession = !!containerName && !interactiveEntry.process.stdin;
 
-        executeAction(action, scan, latch, {
-          sessionId: session.id,
-          sessionEpoch,
-          ptyWrite: (data: string) => {
-            if (isCcContainerSession && containerName) {
-              try {
-                const { sendCcContainerKeystroke } = require('./cc-container-runner.js');
-                sendCcContainerKeystroke(containerName, data);
-              } catch (err) {
-                log.warn('cc-container keystroke failed', { sessionId: session.id, err });
-              }
-            } else {
-              interactiveEntry.process.stdin?.write(data);
-            }
-          },
-          killProcess: killWithFlags,
-          notify,
-          getEntry: () => {
-            const e = getInteractiveEntry(session.id);
-            return e ? { sessionEpoch: `${session.id}:${e.spawnedAt ?? 0}` } : undefined;
-          },
-          statusResetAt: ccStatus?.rate_limit_resets_at ?? null,
-        });
+        tracer.startActiveSpan('nanoclaw.guard_execute', {
+          attributes: { 'session.id': session.id, 'guard.action': action },
+        }, (execSpan) => {
+          try {
+            executeAction(action, scan, latch, {
+              sessionId: session.id,
+              sessionEpoch,
+              ptyWrite: (data: string) => {
+                if (isCcContainerSession && containerName) {
+                  try {
+                    const { sendCcContainerKeystroke } = require('./cc-container-runner.js');
+                    sendCcContainerKeystroke(containerName, data);
+                  } catch (err) {
+                    log.warn('cc-container keystroke failed', { sessionId: session.id, err });
+                  }
+                } else {
+                  interactiveEntry.process.stdin?.write(data);
+                }
+              },
+              killProcess: killWithFlags,
+              notify,
+              getEntry: () => {
+                const e = getInteractiveEntry(session.id);
+                return e ? { sessionEpoch: `${session.id}:${e.spawnedAt ?? 0}` } : undefined;
+              },
+              statusResetAt: ccStatus?.rate_limit_resets_at ?? null,
+            });
 
-        if (action === 'send-enter') {
-          interactiveEntry.ptyBuffer.data = '';
-        }
+            if (action === 'send-enter') {
+              interactiveEntry.ptyBuffer.data = '';
+            }
+          } finally {
+            execSpan.end();
+          }
+        });
       }
 
       // Stuck-session alert (Tier 1): fires direct Slack webhook after 15 min
@@ -536,7 +600,15 @@ async function sweepSession(session: Session): Promise<void> {
     // 5. Recurrence fanout for completed recurring tasks.
     // MODULE-HOOK:scheduling-recurrence:start
     const { handleRecurrence } = await import('./modules/scheduling/recurrence.js');
-    await handleRecurrence(inDb, session);
+    await tracer.startActiveSpan('nanoclaw.recurrence', {
+      attributes: { 'session.id': session.id },
+    }, async (recSpan) => {
+      try {
+        await handleRecurrence(inDb, session);
+      } finally {
+        recSpan.end();
+      }
+    });
     // MODULE-HOOK:scheduling-recurrence:end
   } finally {
     inDb.close();

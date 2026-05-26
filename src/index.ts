@@ -4,10 +4,11 @@
  * Thin orchestrator: init DB, run migrations, start channel adapters,
  * start delivery polls, start sweep, handle shutdown.
  */
+import fs from 'fs';
 import path from 'path';
 
 import { backfillContainerConfigs } from './backfill-container-configs.js';
-import { DATA_DIR } from './config.js';
+import { DATA_DIR, NANOCLAW_OTEL_DISABLE } from './config.js';
 import { readEnvFile } from './env.js';
 import { enforceStartupBackoff, resetCircuitBreaker } from './circuit-breaker.js';
 import { migrateGroupsToClaudeLocal } from './claude-md-compose.js';
@@ -88,6 +89,15 @@ async function main(): Promise<void> {
   ensureContainerRuntimeRunning();
   cleanupOrphans();
   cleanupHostOrphans();
+
+  // 2b. OTEL tracing
+  if (!NANOCLAW_OTEL_DISABLE) {
+    const { initTracing } = await import('./tracing.js');
+    const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
+    const endpoint = process.env.NANOCLAW_OTEL_ENDPOINT || 'http://localhost:4317';
+    initTracing({ endpoint, serviceName: 'nanoclaw-host', serviceVersion: pkg.version });
+    log.info('OTEL tracing initialized', { endpoint });
+  }
 
   // 3. Channel adapters
   await initChannelAdapters((adapter: ChannelAdapter): ChannelSetup => {
@@ -215,6 +225,12 @@ async function shutdown(signal: string): Promise<void> {
     } catch (err) {
       log.error('Shutdown callback threw', { err });
     }
+  }
+  try {
+    const { shutdownTracing } = await import('./tracing.js');
+    await shutdownTracing();
+  } catch (err) {
+    log.warn('Tracing shutdown failed', { err });
   }
   stopDeliveryPolls();
   stopHostSweep();

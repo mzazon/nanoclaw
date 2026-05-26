@@ -23,7 +23,9 @@ export function checkStuckSession(sessionId: string, action: string): void {
 
   if (action === 'ok') {
     if (latch?.alerted) {
-      sendAlert(`✅ Session \`${sessionId}\` recovered (was stuck for ${Math.round((now - latch.since) / 60_000)} min)`);
+      sendAlert(
+        `✅ Session \`${sessionId}\` recovered (was stuck for ${Math.round((now - latch.since) / 60_000)} min)`,
+      );
     }
     stuckLatches.delete(sessionId);
     return;

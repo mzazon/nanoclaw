@@ -3,6 +3,7 @@
  * Spawns agent containers with session folder + agent group folder mounts.
  * The container runs the v2 agent-runner which polls the session DB.
  */
+import { SpanStatusCode } from '@opentelemetry/api';
 import { ChildProcess, execSync, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -31,6 +32,7 @@ import { initGroupFilesystem } from './group-init.js';
 import { spawnHostProcess, cleanupHostOrphans } from './host-runner.js';
 import { stopTypingRefresh } from './modules/typing/index.js';
 import { log } from './log.js';
+import { getTracer } from './tracing.js';
 import { validateAdditionalMounts } from './modules/mount-security/index.js';
 // Provider host-side config barrel — each provider that needs host-side
 // container setup self-registers on import.
@@ -145,6 +147,23 @@ export function wakeContainer(session: Session): Promise<boolean> {
 }
 
 async function spawnContainer(session: Session): Promise<void> {
+  const tracer = getTracer('container');
+  return tracer.startActiveSpan('nanoclaw.container_spawn', {
+    attributes: { 'session.id': session.id, 'agent.group': session.agent_group_id },
+  }, async (spawnSpan) => {
+    try {
+      await spawnContainerInner(session, spawnSpan);
+    } catch (err) {
+      spawnSpan.recordException(err as Error);
+      spawnSpan.setStatus({ code: SpanStatusCode.ERROR });
+      throw err;
+    } finally {
+      spawnSpan.end();
+    }
+  });
+}
+
+async function spawnContainerInner(session: Session, spawnSpan: import('@opentelemetry/api').Span): Promise<void> {
   const agentGroup = getAgentGroup(session.agent_group_id);
   if (!agentGroup) {
     log.error('Agent group not found', { agentGroupId: session.agent_group_id });
@@ -184,6 +203,7 @@ async function spawnContainer(session: Session): Promise<void> {
   // the config object, threaded through provider resolution, buildMounts,
   // and buildContainerArgs so we don't re-read.
   const containerConfig = materializeContainerJson(agentGroup.id);
+  spawnSpan.setAttribute('container.runtime', containerConfig.runtime ?? 'docker');
 
   // LOCAL-010: dispatch to host-agent spawn
   if (containerConfig.runtime === 'host') {
@@ -252,7 +272,19 @@ async function spawnContainer(session: Session): Promise<void> {
     // from the vault. CLAUDE_CODE_OAUTH_TOKEN=placeholder suppresses CC's login
     // prompt; the proxy replaces the Authorization header on the wire. LOCAL-015
     if (ONECLI_URL && ONECLI_API_KEY) {
-      await onecli.ensureAgent({ name: agentGroup.name, identifier: agentIdentifier });
+      const onecliTracer = getTracer('container');
+      await onecliTracer.startActiveSpan('nanoclaw.onecli_ensure', {
+        attributes: { 'agent.name': agentGroup.name ?? '', 'agent.identifier': agentIdentifier },
+      }, async (onecliSpan) => {
+        try {
+          await onecli.ensureAgent({ name: agentGroup.name, identifier: agentIdentifier });
+        } catch (err) {
+          onecliSpan.recordException(err as Error);
+          log.warn('OneCLI ensureAgent failed (non-fatal)', { err });
+        } finally {
+          onecliSpan.end();
+        }
+      });
       const onecliApplied = await onecli.applyContainerConfig(args, { addHostMapping: false, agent: agentIdentifier });
       if (onecliApplied) {
         log.info('OneCLI gateway applied to cc-container', { containerName });
@@ -388,25 +420,34 @@ export function killContainer(
   const entry = activeContainers.get(sessionId);
   if (!entry) return;
 
-  // Last write wins; intentional — guard is the only flag producer, so concurrent flag writes are not expected.
-  if (respawnFlags) {
-    pendingRespawnFlags.set(sessionId, respawnFlags);
-  }
+  const tracer = getTracer('container');
+  tracer.startActiveSpan('nanoclaw.container_kill', {
+    attributes: { 'session.id': sessionId, 'kill.reason': reason, 'container.name': entry.containerName ?? '' },
+  }, (killSpan) => {
+    try {
+      if (respawnFlags) {
+        pendingRespawnFlags.set(sessionId, respawnFlags);
+        killSpan.setAttribute('respawn.requested', true);
+      }
 
-  if (onExit) {
-    entry.process.once('close', onExit);
-  }
+      if (onExit) {
+        entry.process.once('close', onExit);
+      }
 
-  log.info('Killing container', { sessionId, reason, containerName: entry.containerName, respawnFlags });
-  if (entry.isHostProcess) {
-    entry.process.kill('SIGTERM');
-    return;
-  }
-  try {
-    stopContainer(entry.containerName);
-  } catch {
-    entry.process.kill('SIGKILL');
-  }
+      log.info('Killing container', { sessionId, reason, containerName: entry.containerName, respawnFlags });
+      if (entry.isHostProcess) {
+        entry.process.kill('SIGTERM');
+        return;
+      }
+      try {
+        stopContainer(entry.containerName);
+      } catch {
+        entry.process.kill('SIGKILL');
+      }
+    } finally {
+      killSpan.end();
+    }
+  });
 }
 
 /**
@@ -578,7 +619,16 @@ async function buildContainerArgs(
   // The caller (router or host-sweep) catches the throw, leaves the inbound
   // message pending, and the next sweep tick retries.
   if (agentIdentifier) {
-    await onecli.ensureAgent({ name: agentGroup.name, identifier: agentIdentifier });
+    const onecliTracer = getTracer('container');
+    await onecliTracer.startActiveSpan('nanoclaw.onecli_ensure', {
+      attributes: { 'agent.name': agentGroup.name ?? '', 'agent.identifier': agentIdentifier },
+    }, async (onecliSpan) => {
+      try {
+        await onecli.ensureAgent({ name: agentGroup.name, identifier: agentIdentifier });
+      } finally {
+        onecliSpan.end();
+      }
+    });
   }
   const onecliApplied = await onecli.applyContainerConfig(args, { addHostMapping: false, agent: agentIdentifier });
   if (!onecliApplied) {

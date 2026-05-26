@@ -17,6 +17,7 @@
  * drops (no agent wired, no trigger match); the access gate writes rows
  * for policy refusals.
  */
+import { SpanStatusCode, trace } from '@opentelemetry/api';
 import { getChannelAdapter } from './channels/channel-registry.js';
 import { gateCommand } from './command-gate.js';
 import { getAgentGroup } from './db/agent-groups.js';
@@ -33,6 +34,7 @@ import { resolveSession, writeSessionMessage, writeOutboundDirect } from './sess
 import { wakeContainer, getInteractiveEntry, getContainerName } from './container-runner.js';
 import { getSession } from './db/sessions.js';
 import { getContainerConfig } from './db/container-configs.js';
+import { getTracer } from './tracing.js';
 import type { AgentGroup, MessagingGroup, MessagingGroupAgent } from './types.js';
 import type { InboundEvent } from './channels/adapter.js';
 
@@ -180,6 +182,28 @@ function safeParseContent(raw: string): { text?: string; sender?: string; sender
  * Creates messaging group + session if they don't exist yet.
  */
 export async function routeInbound(event: InboundEvent): Promise<void> {
+  const tracer = getTracer('router');
+  return tracer.startActiveSpan('nanoclaw.message_route', {
+    attributes: {
+      'channel.type': event.channelType,
+      'messaging.group.platform_id': event.platformId,
+      'message.kind': event.message.kind,
+      'message.is_mention': event.message.isMention ?? false,
+    },
+  }, async (routeSpan) => {
+    try {
+      await routeInboundInner(event, tracer);
+    } catch (err) {
+      routeSpan.recordException(err as Error);
+      routeSpan.setStatus({ code: SpanStatusCode.ERROR });
+      throw err;
+    } finally {
+      routeSpan.end();
+    }
+  });
+}
+
+async function routeInboundInner(event: InboundEvent, tracer: ReturnType<typeof getTracer>): Promise<void> {
   // Pre-route interceptor — lets modules consume messages before any routing
   // (e.g. free-text replies during multi-step approval flows).
   if (messageInterceptor && (await messageInterceptor(event))) return;
@@ -271,7 +295,17 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
   // 2. Sender resolution (permissions module upserts the users row as a
   //    side effect so later role/access lookups find a real record).
   //    Without the module, userId is null — downstream tolerates it.
-  const userId: string | null = senderResolver ? senderResolver(event) : null;
+  const userId: string | null = tracer.startActiveSpan('nanoclaw.sender_resolve', {
+    attributes: { 'channel.type': event.channelType },
+  }, (child) => {
+    try {
+      const id = senderResolver ? senderResolver(event) : null;
+      if (id) child.setAttribute('user.id', id);
+      return id;
+    } finally {
+      child.end();
+    }
+  });
 
   // 3. Fetch wired agents in full (we already know the count is > 0; now
   //    we need their actual rows for fan-out).
@@ -302,8 +336,18 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
 
     const engages = evaluateEngage(agent, messageText, isMention, mg, event.threadId);
 
-    const accessOk = engages && (!accessGate || accessGate(event, userId, mg, agent.agent_group_id).allowed);
-    const scopeOk = engages && (!senderScopeGate || senderScopeGate(event, userId, mg, agent).allowed);
+    const { accessOk, scopeOk } = tracer.startActiveSpan('nanoclaw.access_gate', {
+      attributes: { 'agent.group': agent.agent_group_id, 'user.id': userId ?? '' },
+    }, (gateSpan) => {
+      try {
+        const aOk = engages && (!accessGate || accessGate(event, userId, mg, agent.agent_group_id).allowed);
+        const sOk = engages && (!senderScopeGate || senderScopeGate(event, userId, mg, agent).allowed);
+        gateSpan.setAttribute('access.allowed', !!(engages && aOk && sOk));
+        return { accessOk: aOk, scopeOk: sOk };
+      } finally {
+        gateSpan.end();
+      }
+    });
 
     if (engages && accessOk && scopeOk) {
       // Per-MGA threading policy: 'flat' nulls threadId, 'thread' preserves it.
@@ -442,7 +486,20 @@ async function deliverToAgent(
     effectiveSessionMode = 'per-thread';
   }
 
-  const { session, created } = resolveSession(agent.agent_group_id, mg.id, event.threadId, effectiveSessionMode);
+  const tracer = getTracer('router');
+  const { session, created } = tracer.startActiveSpan('nanoclaw.session_resolve', {
+    attributes: { 'agent.group': agent.agent_group_id, 'session.mode': effectiveSessionMode },
+  }, (child) => {
+    try {
+      const result = resolveSession(agent.agent_group_id, mg.id, event.threadId, effectiveSessionMode);
+      child.setAttribute('session.id', result.session.id);
+      child.setAttribute('session.created', result.created);
+      return result;
+    } finally {
+      child.end();
+    }
+  });
+  trace.getActiveSpan()?.setAttribute('session.id', session.id);
 
   // The inbound row's (channel_type, platform_id, thread_id) is the address
   // the agent's reply will be delivered to. Normally it mirrors the source
@@ -519,11 +576,17 @@ async function deliverToAgent(
     );
     const freshSession = getSession(session.id);
     if (freshSession) {
-      const woke = await wakeContainer(freshSession);
-      // wakeContainer never throws — it returns false on transient spawn
-      // failure (host-sweep retries). Stop the typing indicator we just
-      // started so it doesn't leak; the inbound row stays pending.
-      if (!woke) stopTypingRefresh(freshSession.id);
+      await tracer.startActiveSpan('nanoclaw.container_wake', {
+        attributes: { 'session.id': session.id, 'agent.group': agent.agent_group_id },
+      }, async (wakeSpan) => {
+        try {
+          const woke = await wakeContainer(freshSession);
+          wakeSpan.setAttribute('wake.success', woke);
+          if (!woke) stopTypingRefresh(freshSession.id);
+        } finally {
+          wakeSpan.end();
+        }
+      });
     }
   }
 }
