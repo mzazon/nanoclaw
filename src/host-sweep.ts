@@ -47,7 +47,7 @@ import {
   syncProcessingAcks,
   type ContainerState,
 } from './db/session-db.js';
-import { checkStuckSession } from './alert.js';
+import { checkStuckSession, sendAlert } from './alert.js';
 import { getTracer } from './tracing.js';
 import { applyHostPreTaskScripts } from './host-task-script.js';
 import { getLatches } from './interactive-rate-limit.js';
@@ -70,6 +70,10 @@ import {
   getContainerName,
 } from './container-runner.js';
 import type { ContainerConfigRow, Session } from './types.js';
+
+const sessionOutboundState = new Map<string, { seq: number; changedAt: number }>();
+
+const STALE_PROCESSING_KILL_MS = 5 * 60 * 1000;
 
 interface CcStatusData {
   context_pct: number;
@@ -296,6 +300,10 @@ async function sweepSessionTraced(session: Session, tracer: ReturnType<typeof ge
     async (span) => {
       try {
         await sweepSession(session);
+        const outState = sessionOutboundState.get(session.id);
+        if (outState) {
+          span.setAttribute('session.last_response_age_ms', Date.now() - outState.changedAt);
+        }
       } catch (err) {
         span.recordException(err as Error);
         span.setStatus({ code: SpanStatusCode.ERROR });
@@ -611,6 +619,39 @@ async function sweepSession(session: Session): Promise<void> {
     // standard SLA which would issue competing kill decisions.
     if (alive && outDb && !interactiveEntry) {
       enforceRunningContainerSla(inDb, outDb, session, agentGroup.id);
+    }
+
+    // 3b. Stale processing watchdog — container alive but bridge claims went
+    // unanswered. Detects the silent-pipe failure: bridge sends notification,
+    // marks processing, but CC never responds and no outbound activity occurs.
+    if (alive && outDb) {
+      const maxSeq = (outDb.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM messages_out').get() as { m: number }).m;
+      const prev = sessionOutboundState.get(session.id);
+      if (!prev || prev.seq !== maxSeq) {
+        sessionOutboundState.set(session.id, { seq: maxSeq, changedAt: Date.now() });
+      }
+      const state = sessionOutboundState.get(session.id)!;
+      const claims = getProcessingClaims(outDb);
+      if (claims.length > 0) {
+        const oldestClaimMs = Math.min(
+          ...claims.map((c) => parseSqliteUtc(c.status_changed)),
+        );
+        const claimAgeMs = Date.now() - oldestClaimMs;
+        const outputIdleMs = Date.now() - state.changedAt;
+        if (claimAgeMs > STALE_PROCESSING_KILL_MS && outputIdleMs > STALE_PROCESSING_KILL_MS) {
+          log.warn('Killing container — stale processing claims with no output', {
+            sessionId: session.id,
+            claimAgeMs,
+            outputIdleMs,
+            claimCount: claims.length,
+          });
+          sendAlert(
+            `⚠️ Stale processing kill: session ${session.id} had ${claims.length} unconfirmed message(s) for ${Math.round(claimAgeMs / 1000)}s with no CC output. Container killed and messages re-queued.`,
+          ).catch(() => {});
+          killContainer(session.id, 'stale-processing-no-output');
+          resetStuckProcessingRows(inDb, outDb, session, 'stale-processing-no-output');
+        }
+      }
     }
 
     // 4. Crashed-container cleanup: processing rows left behind get retried.
