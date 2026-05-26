@@ -425,6 +425,16 @@ async function sweepSession(session: Session): Promise<void> {
         pendingMessages: dueCount,
       });
 
+      // Guard evaluation debug: log every tick for full visibility
+      log.debug('Guard eval', {
+        sessionId: session.id,
+        action,
+        signal: scan.signal,
+        hbStaleMs,
+        pending: dueCount,
+        ptyTail: interactiveEntry.ptyBuffer.data.slice(-200),
+      });
+
       // CC-container status file: log metrics every sweep tick.
       const configRow = getContainerConfig(agentGroup.id);
       const ccStatus =

@@ -7,6 +7,7 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { log } from '../log.js';
 import { setSnapshot, addLogClient, removeLogClient, pushLogLines } from './store.js';
 import { dispatch } from './router.js';
 import type { DashboardConfig, DashboardSnapshot } from './types.js';
@@ -32,7 +33,7 @@ export function startDashboard(config: DashboardConfig = {}): void {
   dashboardSecret = config.secret || null;
 
   if (!dashboardSecret) {
-    console.warn('[dashboard] Starting without secret — endpoints are unauthenticated');
+    log.warn('Dashboard starting without secret — endpoints are unauthenticated');
   }
 
   server = http.createServer(async (req: http.IncomingMessage, res: http.ServerResponse) => {
@@ -119,7 +120,7 @@ export function startDashboard(config: DashboardConfig = {}): void {
   });
 
   server.listen(port, '0.0.0.0', () => {
-    console.log(`[dashboard] Started on http://localhost:${port}/dashboard`);
+    log.info('Dashboard listening', { url: `http://localhost:${port}/dashboard` });
   });
 }
 
