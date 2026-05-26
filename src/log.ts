@@ -15,12 +15,20 @@ const FULL_RESET = '\x1b[0m';
 
 const debugMode = process.env.NANOCLAW_DEBUG === '1';
 const threshold = debugMode ? LEVELS.debug : (LEVELS[(process.env.LOG_LEVEL as Level) || 'info'] ?? LEVELS.info);
+const JSON_MODE = process.env.NANOCLAW_LOG_FORMAT === 'json' || !process.stdout.isTTY;
 
 function formatErr(err: unknown): string {
   if (err instanceof Error) {
     return `{ type: "${err.constructor.name}", message: "${err.message}", stack: ${err.stack} }`;
   }
   return JSON.stringify(err);
+}
+
+function formatErrJson(err: unknown): unknown {
+  if (err instanceof Error) {
+    return { type: err.constructor.name, message: err.message, stack: err.stack };
+  }
+  return err;
 }
 
 function formatData(data: Record<string, unknown>): string {
@@ -42,9 +50,16 @@ function ts(): string {
 
 function emit(level: Level, msg: string, data?: Record<string, unknown>): void {
   if (LEVELS[level] < threshold) return;
-  const tag = `${COLORS[level]}${level.toUpperCase()}${level === 'fatal' ? FULL_RESET : RESET}`;
   const stream = LEVELS[level] >= LEVELS.warn ? process.stderr : process.stdout;
-  stream.write(`[${ts()}] ${tag} ${MSG_COLOR}${msg}${RESET}${data ? formatData(data) : ''}\n`);
+
+  if (JSON_MODE) {
+    const entry: Record<string, unknown> = { ts: new Date().toISOString(), level, msg, ...data };
+    if (data?.err) entry.err = formatErrJson(data.err);
+    stream.write(JSON.stringify(entry) + '\n');
+  } else {
+    const tag = `${COLORS[level]}${level.toUpperCase()}${level === 'fatal' ? FULL_RESET : RESET}`;
+    stream.write(`[${ts()}] ${tag} ${MSG_COLOR}${msg}${RESET}${data ? formatData(data) : ''}\n`);
+  }
 }
 
 export const log = {
