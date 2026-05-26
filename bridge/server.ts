@@ -4,16 +4,19 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { getPendingMessages, markProcessing, markCompleted, clearStaleProcessingAcks, touchHeartbeat, readOutboundMaxSeq } from './db.ts';
+import { initBridgeTracing, shutdownTracing, spanWrap } from './tracing.ts';
+import { handleReply, handleSendFile, buildInstructions } from './tools.ts';
 
 const pendingConfirmation = new Set<string>();
 
 function confirmDelivery(inReplyTo: string | null): void {
   if (!inReplyTo || !pendingConfirmation.has(inReplyTo)) return;
   pendingConfirmation.delete(inReplyTo);
-  markCompleted(SESSION_DIR, [inReplyTo]);
+  spanWrap('bridge.confirm_delivery', { 'message.id': inReplyTo }, () => {
+    markCompleted(SESSION_DIR, [inReplyTo]);
+  });
   process.stderr.write(`bridge: confirmed delivery for ${inReplyTo}\n`);
 }
-import { handleReply, handleSendFile, buildInstructions } from './tools.ts';
 import {
   handleScheduleTask, handleListTasks, handleCancelTask,
   handleUpdateTask, handlePauseTask, handleResumeTask,
@@ -102,7 +105,9 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
 
 mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
   const args = (req.params.arguments ?? {}) as Record<string, unknown>;
-  switch (req.params.name) {
+  const toolName = req.params.name;
+  return spanWrap('bridge.tool_call', { 'tool.name': toolName, ...(currentInReplyTo ? { 'message.id': currentInReplyTo } : {}) }, () => {
+  switch (toolName) {
     case 'reply': {
       confirmDelivery(currentInReplyTo);
       return handleReply(
@@ -158,9 +163,10 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
       if (req.params.name === 'ncl' && !NCL_ENABLED) {
         return { content: [{ type: 'text', text: 'CLI tools are not enabled in this session.' }], isError: true };
       }
-      return { content: [{ type: 'text', text: `unknown tool: ${req.params.name}` }], isError: true };
+      return { content: [{ type: 'text', text: `unknown tool: ${toolName}` }], isError: true };
     }
   }
+  });
 });
 
 if (import.meta.main) {
@@ -191,6 +197,7 @@ if (import.meta.main) {
       } else {
         const ids = messages.map((m) => m.id);
         markProcessing(SESSION_DIR, ids);
+        spanWrap('bridge.poll_dispatch', { 'message.count': ids.length, 'message.ids': ids.join(',') }, () => {
 
         function parseMsg(msg: typeof messages[0]): { text: string; user: string } {
           try {
@@ -245,6 +252,7 @@ if (import.meta.main) {
         for (const id of ids) pendingConfirmation.add(id);
         process.stderr.write(`bridge: notified ${ids.length} message(s), awaiting CC response: ${ids.join(',')}\n`);
         touchHeartbeat(HEARTBEAT_PATH);
+        });
       }
 
       // Unresponsiveness check runs every tick regardless of inbound traffic.
@@ -280,12 +288,15 @@ if (import.meta.main) {
     shuttingDown = true;
     clearTimeout(pollTimer);
     process.stderr.write('bridge: shutting down\n');
-    process.exit(0);
+    shutdownTracing().finally(() => process.exit(0));
   }
   process.stdin.on('end', shutdown);
   process.stdin.on('close', shutdown);
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
+
+  const sessionId = SESSION_DIR.split('/').pop() ?? undefined;
+  initBridgeTracing(sessionId);
 
   const cleared = clearStaleProcessingAcks(SESSION_DIR);
   if (cleared > 0) process.stderr.write(`bridge: cleared ${cleared} stale processing ack(s) from previous incarnation\n`);

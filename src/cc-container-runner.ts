@@ -26,10 +26,15 @@ export function buildCcContainerMcpJson(
   bridgePath: string,
   additionalServers: Record<string, McpServerConfig>,
 ): string {
+  const bridgeEnv: Record<string, string> = {};
+  if (!NANOCLAW_OTEL_DISABLE && NANOCLAW_OTEL_CONTAINER_ENDPOINT) {
+    bridgeEnv.OTEL_EXPORTER_OTLP_ENDPOINT = NANOCLAW_OTEL_CONTAINER_ENDPOINT;
+  }
   const servers: Record<string, unknown> = {
     bridge: {
       command: 'bun',
       args: ['run', bridgePath],
+      ...(Object.keys(bridgeEnv).length > 0 ? { env: bridgeEnv } : {}),
     },
   };
   for (const [name, config] of Object.entries(additionalServers)) {
