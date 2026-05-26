@@ -118,7 +118,7 @@ describe('buildCcContainerEnv', () => {
     );
     const flat = pairs.map((p) => p[1]);
     expect(flat).toContain('CLAUDE_CODE_ENABLE_TELEMETRY=1');
-    expect(flat).toContain('OTEL_METRICS_EXPORTER=otlp');
+    expect(flat).toContain('OTEL_METRICS_EXPORTER=none');
     expect(flat).toContain('OTEL_TRACES_EXPORTER=otlp');
     expect(flat.find((v) => v.startsWith('OTEL_EXPORTER_OTLP_ENDPOINT='))).toBeTruthy();
     const resAttrs = flat.find((v) => v.startsWith('OTEL_RESOURCE_ATTRIBUTES='));

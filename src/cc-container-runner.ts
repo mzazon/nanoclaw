@@ -3,7 +3,7 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-import { GROUPS_DIR, TIMEZONE, NANOCLAW_OTEL_ENDPOINT, NANOCLAW_OTEL_DISABLE, NANOCLAW_DEBUG } from './config.js';
+import { GROUPS_DIR, TIMEZONE, NANOCLAW_OTEL_CONTAINER_ENDPOINT, NANOCLAW_OTEL_DISABLE, NANOCLAW_DEBUG } from './config.js';
 import { getDb, hasTable } from './db/connection.js';
 import { CONTAINER_RUNTIME_BIN } from './container-runtime.js';
 import type { ContainerConfig, McpServerConfig } from './container-config.js';
@@ -190,11 +190,11 @@ export function buildCcContainerEnv(
   if (!NANOCLAW_OTEL_DISABLE) {
     envPairs.push(['-e', 'CLAUDE_CODE_ENABLE_TELEMETRY=1']);
     envPairs.push(['-e', 'CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1']);
-    envPairs.push(['-e', 'OTEL_METRICS_EXPORTER=otlp']);
+    envPairs.push(['-e', 'OTEL_METRICS_EXPORTER=none']);
     envPairs.push(['-e', 'OTEL_LOGS_EXPORTER=otlp']);
     envPairs.push(['-e', 'OTEL_TRACES_EXPORTER=otlp']);
     envPairs.push(['-e', 'OTEL_EXPORTER_OTLP_PROTOCOL=grpc']);
-    envPairs.push(['-e', `OTEL_EXPORTER_OTLP_ENDPOINT=${NANOCLAW_OTEL_ENDPOINT}`]);
+    envPairs.push(['-e', `OTEL_EXPORTER_OTLP_ENDPOINT=${NANOCLAW_OTEL_CONTAINER_ENDPOINT}`]);
     const resAttrs = [
       'service.name=cc-container',
       `agent.group=${agentGroup.name || agentGroup.id}`,

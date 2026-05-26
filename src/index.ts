@@ -8,7 +8,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { backfillContainerConfigs } from './backfill-container-configs.js';
-import { DATA_DIR, NANOCLAW_OTEL_DISABLE } from './config.js';
+import { DATA_DIR, NANOCLAW_OTEL_DISABLE, NANOCLAW_OTEL_ENDPOINT } from './config.js';
 import { readEnvFile } from './env.js';
 import { enforceStartupBackoff, resetCircuitBreaker } from './circuit-breaker.js';
 import { migrateGroupsToClaudeLocal } from './claude-md-compose.js';
@@ -94,7 +94,7 @@ async function main(): Promise<void> {
   if (!NANOCLAW_OTEL_DISABLE) {
     const { initTracing } = await import('./tracing.js');
     const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
-    const endpoint = process.env.NANOCLAW_OTEL_ENDPOINT || 'http://localhost:4317';
+    const endpoint = NANOCLAW_OTEL_ENDPOINT;
     initTracing({ endpoint, serviceName: 'nanoclaw-host', serviceVersion: pkg.version });
     log.info('OTEL tracing initialized', { endpoint });
   }
