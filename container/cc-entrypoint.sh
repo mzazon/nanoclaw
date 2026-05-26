@@ -116,6 +116,10 @@ if [ -n "${NANOCLAW_MODEL:-}" ]; then
   CLAUDE_ARGS="$CLAUDE_ARGS --model $NANOCLAW_MODEL"
 fi
 
+if [ "${NANOCLAW_DEBUG:-0}" = "1" ]; then
+  CLAUDE_ARGS="$CLAUDE_ARGS --debug api,hooks,mcp --debug-file ${SESSION_DIR}/.cc-debug.log"
+fi
+
 # ---- Hook scripts ----
 HOOKS_DIR="${CLAUDE_DIR}/hooks"
 mkdir -p "$HOOKS_DIR"
