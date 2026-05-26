@@ -75,7 +75,7 @@ export function getPendingMessages(sessionDir: string, isFirstPoll: boolean): Me
       .all(isFirstPoll ? 1 : 0, 10) as MessageInRow[];
     if (pending.length === 0) return [];
     const ackedIds = new Set(
-      (outbound.prepare('SELECT message_id FROM processing_ack').all() as Array<{ message_id: string }>).map(
+      (outbound.prepare("SELECT message_id FROM processing_ack").all() as Array<{ message_id: string }>).map(
         (r) => r.message_id,
       ),
     );
@@ -93,6 +93,16 @@ export function getPendingMessages(sessionDir: string, isFirstPoll: boolean): Me
   } finally {
     inbound.close();
     outbound.close();
+  }
+}
+
+export function clearStaleProcessingAcks(sessionDir: string): number {
+  const db = openOutbound(sessionDir);
+  try {
+    const result = db.prepare("DELETE FROM processing_ack WHERE status = 'processing'").run();
+    return result.changes;
+  } finally {
+    db.close();
   }
 }
 

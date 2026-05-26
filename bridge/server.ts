@@ -3,7 +3,16 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { getPendingMessages, markProcessing, markCompleted, touchHeartbeat, readOutboundMaxSeq } from './db.ts';
+import { getPendingMessages, markProcessing, markCompleted, clearStaleProcessingAcks, touchHeartbeat, readOutboundMaxSeq } from './db.ts';
+
+const pendingConfirmation = new Set<string>();
+
+function confirmDelivery(inReplyTo: string | null): void {
+  if (!inReplyTo || !pendingConfirmation.has(inReplyTo)) return;
+  pendingConfirmation.delete(inReplyTo);
+  markCompleted(SESSION_DIR, [inReplyTo]);
+  process.stderr.write(`bridge: confirmed delivery for ${inReplyTo}\n`);
+}
 import { handleReply, handleSendFile, buildInstructions } from './tools.ts';
 import {
   handleScheduleTask, handleListTasks, handleCancelTask,
@@ -94,21 +103,26 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
 mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
   const args = (req.params.arguments ?? {}) as Record<string, unknown>;
   switch (req.params.name) {
-    case 'reply':
+    case 'reply': {
+      confirmDelivery(currentInReplyTo);
       return handleReply(
         SESSION_DIR,
         HEARTBEAT_PATH,
         { text: args.text as string, to: args.to as string | undefined, thread_id: args.thread_id as string | undefined },
         currentInReplyTo,
       );
-    case 'send_message':
+    }
+    case 'send_message': {
+      confirmDelivery(currentInReplyTo);
       return handleReply(
         SESSION_DIR,
         HEARTBEAT_PATH,
         { text: args.text as string, to: args.to as string, thread_id: args.thread_id as string | undefined },
         currentInReplyTo,
       );
-    case 'send_file':
+    }
+    case 'send_file': {
+      confirmDelivery(currentInReplyTo);
       return handleSendFile(
         SESSION_DIR,
         HEARTBEAT_PATH,
@@ -121,6 +135,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
         },
         currentInReplyTo,
       );
+    }
     case 'schedule_task':
       return handleScheduleTask(SESSION_DIR, args);
     case 'list_tasks':
@@ -227,7 +242,8 @@ if (import.meta.main) {
           }).catch((e) => process.stderr.write(`bridge: notification send failed: ${e}\n`));
           unresponsivenessState.notificationsSent++;
         }
-        markCompleted(SESSION_DIR, ids);
+        for (const id of ids) pendingConfirmation.add(id);
+        process.stderr.write(`bridge: notified ${ids.length} message(s), awaiting CC response: ${ids.join(',')}\n`);
         touchHeartbeat(HEARTBEAT_PATH);
       }
 
@@ -271,6 +287,8 @@ if (import.meta.main) {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
+  const cleared = clearStaleProcessingAcks(SESSION_DIR);
+  if (cleared > 0) process.stderr.write(`bridge: cleared ${cleared} stale processing ack(s) from previous incarnation\n`);
   process.stderr.write(`bridge: started (session=${SESSION_DIR})\n`);
 }
 

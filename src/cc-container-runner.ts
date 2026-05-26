@@ -3,7 +3,13 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-import { GROUPS_DIR, TIMEZONE, NANOCLAW_OTEL_CONTAINER_ENDPOINT, NANOCLAW_OTEL_DISABLE, NANOCLAW_DEBUG } from './config.js';
+import {
+  GROUPS_DIR,
+  TIMEZONE,
+  NANOCLAW_OTEL_CONTAINER_ENDPOINT,
+  NANOCLAW_OTEL_DISABLE,
+  NANOCLAW_DEBUG,
+} from './config.js';
 import { getDb, hasTable } from './db/connection.js';
 import { CONTAINER_RUNTIME_BIN } from './container-runtime.js';
 import type { ContainerConfig, McpServerConfig } from './container-config.js';
@@ -55,6 +61,11 @@ export function buildCcContainerMounts(
   const ccProjectsDir = path.join(sessDir, '.claude-projects');
   fs.mkdirSync(ccProjectsDir, { recursive: true });
   mounts.push({ hostPath: ccProjectsDir, containerPath: '/home/node/.claude/projects', readonly: false });
+
+  // MCP server logs — persists across container restarts so bridge/tool logs survive --rm
+  const mcpLogsDir = path.join(sessDir, '.mcp-logs');
+  fs.mkdirSync(mcpLogsDir, { recursive: true });
+  mounts.push({ hostPath: mcpLogsDir, containerPath: '/home/node/.cache/claude-cli-nodejs', readonly: false });
 
   // Group dir → project CWD
   mounts.push({ hostPath: groupDir, containerPath: '/workspaces/project', readonly: false });
