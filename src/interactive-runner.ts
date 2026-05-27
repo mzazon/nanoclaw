@@ -8,7 +8,13 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-import { GROUPS_DIR, TIMEZONE } from './config.js';
+import {
+  GROUPS_DIR,
+  TIMEZONE,
+  NANOCLAW_OTEL_ENDPOINT,
+  NANOCLAW_OTEL_DISABLE,
+  NANOCLAW_DEBUG,
+} from './config.js';
 import type { ContainerConfig } from './container-config.js';
 import { composeGroupClaudeMd } from './claude-md-compose.js';
 import { initGroupFilesystem } from './group-init.js';
@@ -34,10 +40,12 @@ export function buildInteractiveEnv(opts: {
   baseEnv: NodeJS.ProcessEnv;
   sessionDir: string;
   agentGroupId: string;
+  sessionId?: string;
+  agentGroupName?: string;
   assistantName?: string;
   timezone: string;
 }): Record<string, string | undefined> {
-  return {
+  const env: Record<string, string | undefined> = {
     ...opts.baseEnv,
     HOME: opts.baseEnv.HOME || os.homedir(),
     TZ: opts.timezone,
@@ -45,6 +53,31 @@ export function buildInteractiveEnv(opts: {
     NANOCLAW_AGENT_GROUP_ID: opts.agentGroupId,
     ...(opts.assistantName ? { NANOCLAW_ASSISTANT_NAME: opts.assistantName } : {}),
   };
+
+  if (!NANOCLAW_OTEL_DISABLE) {
+    env.CLAUDE_CODE_ENABLE_TELEMETRY = '1';
+    env.CLAUDE_CODE_ENHANCED_TELEMETRY_BETA = '1';
+    env.OTEL_METRICS_EXPORTER = 'none';
+    env.OTEL_LOGS_EXPORTER = 'otlp';
+    env.OTEL_TRACES_EXPORTER = 'otlp';
+    env.OTEL_EXPORTER_OTLP_PROTOCOL = 'grpc';
+    env.OTEL_EXPORTER_OTLP_ENDPOINT = NANOCLAW_OTEL_ENDPOINT;
+    const resAttrs = [
+      'service.name=cc-interactive',
+      ...(opts.agentGroupName ? [`agent.group=${opts.agentGroupName}`] : []),
+      ...(opts.sessionId ? [`session.id=${opts.sessionId}`] : []),
+    ].join(',');
+    env.OTEL_RESOURCE_ATTRIBUTES = resAttrs;
+    if (NANOCLAW_DEBUG) {
+      env.OTEL_LOG_USER_PROMPTS = '1';
+      env.OTEL_LOG_TOOL_DETAILS = '1';
+      env.OTEL_LOG_TOOL_CONTENT = '1';
+      env.OTEL_METRIC_EXPORT_INTERVAL = '10000';
+      env.OTEL_LOGS_EXPORT_INTERVAL = '3000';
+    }
+  }
+
+  return env;
 }
 
 export function resolveBunBin(): string {
@@ -55,12 +88,17 @@ export function resolveBunBin(): string {
 }
 
 export function buildMcpJson(bridgeServerPath: string): string {
+  const bridgeEnv: Record<string, string> = {};
+  if (!NANOCLAW_OTEL_DISABLE && NANOCLAW_OTEL_ENDPOINT) {
+    bridgeEnv.OTEL_EXPORTER_OTLP_ENDPOINT = NANOCLAW_OTEL_ENDPOINT;
+  }
   return JSON.stringify(
     {
       mcpServers: {
         bridge: {
           command: resolveBunBin(),
           args: ['run', bridgeServerPath],
+          ...(Object.keys(bridgeEnv).length > 0 ? { env: bridgeEnv } : {}),
         },
       },
     },
@@ -127,6 +165,8 @@ export async function spawnInteractiveSession(
     baseEnv: process.env,
     sessionDir: sessDir,
     agentGroupId: agentGroup.id,
+    sessionId: session.id,
+    agentGroupName: agentGroup.name,
     assistantName: agentGroup.name,
     timezone: TIMEZONE,
   });

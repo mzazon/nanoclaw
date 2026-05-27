@@ -633,9 +633,7 @@ async function sweepSession(session: Session): Promise<void> {
       const state = sessionOutboundState.get(session.id)!;
       const claims = getProcessingClaims(outDb);
       if (claims.length > 0) {
-        const oldestClaimMs = Math.min(
-          ...claims.map((c) => parseSqliteUtc(c.status_changed)),
-        );
+        const oldestClaimMs = Math.min(...claims.map((c) => parseSqliteUtc(c.status_changed)));
         const claimAgeMs = Date.now() - oldestClaimMs;
         const outputIdleMs = Date.now() - state.changedAt;
         if (claimAgeMs > STALE_PROCESSING_KILL_MS && outputIdleMs > STALE_PROCESSING_KILL_MS) {

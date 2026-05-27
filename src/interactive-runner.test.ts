@@ -39,6 +39,24 @@ describe('interactive-runner', () => {
       });
       expect(env.NANOCLAW_ASSISTANT_NAME).toBeUndefined();
     });
+
+    test('includes OTEL env vars when not disabled', () => {
+      const env = buildInteractiveEnv({
+        baseEnv: { HOME: '/home/x' },
+        sessionDir: '/tmp/s',
+        agentGroupId: 'g1',
+        sessionId: 'sess-123',
+        agentGroupName: 'TestGroup',
+        timezone: 'UTC',
+      });
+      expect(env.CLAUDE_CODE_ENABLE_TELEMETRY).toBe('1');
+      expect(env.OTEL_METRICS_EXPORTER).toBe('none');
+      expect(env.OTEL_TRACES_EXPORTER).toBe('otlp');
+      expect(env.OTEL_EXPORTER_OTLP_PROTOCOL).toBe('grpc');
+      expect(env.OTEL_RESOURCE_ATTRIBUTES).toContain('service.name=cc-interactive');
+      expect(env.OTEL_RESOURCE_ATTRIBUTES).toContain('session.id=sess-123');
+      expect(env.OTEL_RESOURCE_ATTRIBUTES).toContain('agent.group=TestGroup');
+    });
   });
 
   describe('buildMcpJson', () => {
@@ -53,6 +71,13 @@ describe('interactive-runner', () => {
     test('produces valid JSON', () => {
       const json = buildMcpJson('/some/path.ts');
       expect(() => JSON.parse(json)).not.toThrow();
+    });
+
+    test('includes OTEL env for bridge when not disabled', () => {
+      const json = buildMcpJson('/app/bridge/server.ts');
+      const parsed = JSON.parse(json);
+      expect(parsed.mcpServers.bridge.env).toBeDefined();
+      expect(parsed.mcpServers.bridge.env.OTEL_EXPORTER_OTLP_ENDPOINT).toMatch(/localhost:4317/);
     });
   });
 
