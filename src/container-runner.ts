@@ -626,8 +626,8 @@ async function buildContainerArgs(
     args.push('-e', 'OTEL_TRACES_EXPORTER=otlp');
     args.push('-e', 'OTEL_EXPORTER_OTLP_PROTOCOL=grpc');
     args.push('-e', `OTEL_EXPORTER_OTLP_ENDPOINT=${NANOCLAW_OTEL_CONTAINER_ENDPOINT}`);
+    args.push('-e', 'OTEL_SERVICE_NAME=agent-runner');
     const resAttrs = [
-      `service.name=agent-runner`,
       `agent.group=${agentGroup.name || agentGroup.id}`,
       ...(sessionId ? [`session.id=${sessionId}`] : []),
     ].join(',');

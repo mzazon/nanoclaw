@@ -53,7 +53,7 @@ describe('interactive-runner', () => {
       expect(env.OTEL_METRICS_EXPORTER).toBe('none');
       expect(env.OTEL_TRACES_EXPORTER).toBe('otlp');
       expect(env.OTEL_EXPORTER_OTLP_PROTOCOL).toBe('grpc');
-      expect(env.OTEL_RESOURCE_ATTRIBUTES).toContain('service.name=cc-interactive');
+      expect(env.OTEL_SERVICE_NAME).toBe('cc-interactive');
       expect(env.OTEL_RESOURCE_ATTRIBUTES).toContain('session.id=sess-123');
       expect(env.OTEL_RESOURCE_ATTRIBUTES).toContain('agent.group=TestGroup');
     });

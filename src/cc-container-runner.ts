@@ -211,8 +211,8 @@ export function buildCcContainerEnv(
     envPairs.push(['-e', 'OTEL_TRACES_EXPORTER=otlp']);
     envPairs.push(['-e', 'OTEL_EXPORTER_OTLP_PROTOCOL=grpc']);
     envPairs.push(['-e', `OTEL_EXPORTER_OTLP_ENDPOINT=${NANOCLAW_OTEL_CONTAINER_ENDPOINT}`]);
+    envPairs.push(['-e', 'OTEL_SERVICE_NAME=cc-container']);
     const resAttrs = [
-      'service.name=cc-container',
       `agent.group=${agentGroup.name || agentGroup.id}`,
       ...(sessionId ? [`session.id=${sessionId}`] : []),
     ].join(',');

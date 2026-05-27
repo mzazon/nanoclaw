@@ -8,13 +8,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-import {
-  GROUPS_DIR,
-  TIMEZONE,
-  NANOCLAW_OTEL_ENDPOINT,
-  NANOCLAW_OTEL_DISABLE,
-  NANOCLAW_DEBUG,
-} from './config.js';
+import { GROUPS_DIR, TIMEZONE, NANOCLAW_OTEL_ENDPOINT, NANOCLAW_OTEL_DISABLE, NANOCLAW_DEBUG } from './config.js';
 import type { ContainerConfig } from './container-config.js';
 import { composeGroupClaudeMd } from './claude-md-compose.js';
 import { initGroupFilesystem } from './group-init.js';
@@ -62,12 +56,12 @@ export function buildInteractiveEnv(opts: {
     env.OTEL_TRACES_EXPORTER = 'otlp';
     env.OTEL_EXPORTER_OTLP_PROTOCOL = 'grpc';
     env.OTEL_EXPORTER_OTLP_ENDPOINT = NANOCLAW_OTEL_ENDPOINT;
+    env.OTEL_SERVICE_NAME = 'cc-interactive';
     const resAttrs = [
-      'service.name=cc-interactive',
       ...(opts.agentGroupName ? [`agent.group=${opts.agentGroupName}`] : []),
       ...(opts.sessionId ? [`session.id=${opts.sessionId}`] : []),
     ].join(',');
-    env.OTEL_RESOURCE_ATTRIBUTES = resAttrs;
+    if (resAttrs) env.OTEL_RESOURCE_ATTRIBUTES = resAttrs;
     if (NANOCLAW_DEBUG) {
       env.OTEL_LOG_USER_PROMPTS = '1';
       env.OTEL_LOG_TOOL_DETAILS = '1';

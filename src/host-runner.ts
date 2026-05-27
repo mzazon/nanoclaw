@@ -101,12 +101,12 @@ export function buildHostProcessEnv(opts: {
     env.OTEL_TRACES_EXPORTER = 'otlp';
     env.OTEL_EXPORTER_OTLP_PROTOCOL = 'grpc';
     env.OTEL_EXPORTER_OTLP_ENDPOINT = NANOCLAW_OTEL_ENDPOINT;
+    env.OTEL_SERVICE_NAME = 'host-agent';
     const resAttrs = [
-      'service.name=host-agent',
       ...(opts.agentGroupName ? [`agent.group=${opts.agentGroupName}`] : []),
       ...(opts.sessionId ? [`session.id=${opts.sessionId}`] : []),
     ].join(',');
-    env.OTEL_RESOURCE_ATTRIBUTES = resAttrs;
+    if (resAttrs) env.OTEL_RESOURCE_ATTRIBUTES = resAttrs;
     if (NANOCLAW_DEBUG) {
       env.OTEL_LOG_USER_PROMPTS = '1';
       env.OTEL_LOG_TOOL_DETAILS = '1';

@@ -89,7 +89,7 @@ describe('buildHostProcessEnv', () => {
     expect(env.CLAUDE_CODE_ENABLE_TELEMETRY).toBe('1');
     expect(env.OTEL_TRACES_EXPORTER).toBe('otlp');
     expect(env.OTEL_METRICS_EXPORTER).toBe('none');
-    expect(env.OTEL_RESOURCE_ATTRIBUTES).toContain('service.name=host-agent');
+    expect(env.OTEL_SERVICE_NAME).toBe('host-agent');
     expect(env.OTEL_RESOURCE_ATTRIBUTES).toContain('session.id=sess-test-123');
     expect(env.OTEL_RESOURCE_ATTRIBUTES).toContain('agent.group=Sentinel');
   });

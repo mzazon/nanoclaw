@@ -121,8 +121,8 @@ describe('buildCcContainerEnv', () => {
     expect(flat).toContain('OTEL_METRICS_EXPORTER=none');
     expect(flat).toContain('OTEL_TRACES_EXPORTER=otlp');
     expect(flat.find((v) => v.startsWith('OTEL_EXPORTER_OTLP_ENDPOINT='))).toBeTruthy();
+    expect(flat).toContain('OTEL_SERVICE_NAME=cc-container');
     const resAttrs = flat.find((v) => v.startsWith('OTEL_RESOURCE_ATTRIBUTES='));
-    expect(resAttrs).toContain('service.name=cc-container');
     expect(resAttrs).toContain('agent.group=TestBot');
     expect(resAttrs).toContain('session.id=sess-test-123');
   });
