@@ -13,7 +13,16 @@ import path from 'path';
 
 import { OneCLI } from '@onecli-sh/sdk';
 
-import { DATA_DIR, GROUPS_DIR, ONECLI_API_KEY, ONECLI_URL, TIMEZONE } from './config.js';
+import {
+  DATA_DIR,
+  GROUPS_DIR,
+  ONECLI_API_KEY,
+  ONECLI_URL,
+  TIMEZONE,
+  NANOCLAW_OTEL_ENDPOINT,
+  NANOCLAW_OTEL_DISABLE,
+  NANOCLAW_DEBUG,
+} from './config.js';
 import type { ContainerConfig } from './container-config.js';
 import { composeGroupClaudeMd } from './claude-md-compose.js';
 import { composeHostHome } from './host-home.js';
@@ -58,6 +67,8 @@ export function buildHostProcessEnv(opts: {
   sessDir: string;
   groupDir: string;
   projectRoot: string;
+  sessionId?: string;
+  agentGroupName?: string;
 }): Record<string, string | undefined> {
   const rewritten: Record<string, string> = {};
   for (const [key, value] of Object.entries(opts.onecliEnv)) {
@@ -66,7 +77,7 @@ export function buildHostProcessEnv(opts: {
     }
   }
 
-  return {
+  const env: Record<string, string | undefined> = {
     ...opts.baseEnv,
     ...rewritten,
     HOME: opts.home,
@@ -81,6 +92,31 @@ export function buildHostProcessEnv(opts: {
     NO_PROXY: 'localhost,127.0.0.1',
     no_proxy: 'localhost,127.0.0.1',
   };
+
+  if (!NANOCLAW_OTEL_DISABLE) {
+    env.CLAUDE_CODE_ENABLE_TELEMETRY = '1';
+    env.CLAUDE_CODE_ENHANCED_TELEMETRY_BETA = '1';
+    env.OTEL_METRICS_EXPORTER = 'none';
+    env.OTEL_LOGS_EXPORTER = 'otlp';
+    env.OTEL_TRACES_EXPORTER = 'otlp';
+    env.OTEL_EXPORTER_OTLP_PROTOCOL = 'grpc';
+    env.OTEL_EXPORTER_OTLP_ENDPOINT = NANOCLAW_OTEL_ENDPOINT;
+    const resAttrs = [
+      'service.name=host-agent',
+      ...(opts.agentGroupName ? [`agent.group=${opts.agentGroupName}`] : []),
+      ...(opts.sessionId ? [`session.id=${opts.sessionId}`] : []),
+    ].join(',');
+    env.OTEL_RESOURCE_ATTRIBUTES = resAttrs;
+    if (NANOCLAW_DEBUG) {
+      env.OTEL_LOG_USER_PROMPTS = '1';
+      env.OTEL_LOG_TOOL_DETAILS = '1';
+      env.OTEL_LOG_TOOL_CONTENT = '1';
+      env.OTEL_METRIC_EXPORT_INTERVAL = '10000';
+      env.OTEL_LOGS_EXPORT_INTERVAL = '3000';
+    }
+  }
+
+  return env;
 }
 
 /**
@@ -141,6 +177,8 @@ export async function spawnHostProcess(
     sessDir,
     groupDir,
     projectRoot,
+    sessionId: session.id,
+    agentGroupName: agentGroup.name,
   });
 
   const child = spawn(

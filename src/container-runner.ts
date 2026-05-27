@@ -19,6 +19,9 @@ import {
   ONECLI_API_KEY,
   ONECLI_URL,
   TIMEZONE,
+  NANOCLAW_OTEL_CONTAINER_ENDPOINT,
+  NANOCLAW_OTEL_DISABLE,
+  NANOCLAW_DEBUG,
 } from './config.js';
 import { materializeContainerJson } from './container-config.js';
 import { getContainerConfig } from './db/container-configs.js';
@@ -365,6 +368,7 @@ async function spawnContainerInner(session: Session, spawnSpan: import('@opentel
     provider,
     contribution,
     agentIdentifier,
+    session.id,
   );
 
   log.info('Spawning container', { sessionId: session.id, agentGroup: agentGroup.name, containerName });
@@ -605,12 +609,37 @@ async function buildContainerArgs(
   provider: string,
   providerContribution: ProviderContainerContribution,
   agentIdentifier?: string,
+  sessionId?: string,
 ): Promise<string[]> {
   const args: string[] = ['run', '--rm', '--name', containerName, '--label', CONTAINER_INSTALL_LABEL];
 
   // Environment — only vars read by code we don't own.
   // Everything NanoClaw-specific is in container.json (read by runner at startup).
   args.push('-e', `TZ=${TIMEZONE}`);
+
+  // OTEL telemetry — Agent SDK passes these through to the Claude Code CLI subprocess
+  if (!NANOCLAW_OTEL_DISABLE) {
+    args.push('-e', 'CLAUDE_CODE_ENABLE_TELEMETRY=1');
+    args.push('-e', 'CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1');
+    args.push('-e', 'OTEL_METRICS_EXPORTER=none');
+    args.push('-e', 'OTEL_LOGS_EXPORTER=otlp');
+    args.push('-e', 'OTEL_TRACES_EXPORTER=otlp');
+    args.push('-e', 'OTEL_EXPORTER_OTLP_PROTOCOL=grpc');
+    args.push('-e', `OTEL_EXPORTER_OTLP_ENDPOINT=${NANOCLAW_OTEL_CONTAINER_ENDPOINT}`);
+    const resAttrs = [
+      `service.name=agent-runner`,
+      `agent.group=${agentGroup.name || agentGroup.id}`,
+      ...(sessionId ? [`session.id=${sessionId}`] : []),
+    ].join(',');
+    args.push('-e', `OTEL_RESOURCE_ATTRIBUTES=${resAttrs}`);
+    if (NANOCLAW_DEBUG) {
+      args.push('-e', 'OTEL_LOG_USER_PROMPTS=1');
+      args.push('-e', 'OTEL_LOG_TOOL_DETAILS=1');
+      args.push('-e', 'OTEL_LOG_TOOL_CONTENT=1');
+      args.push('-e', 'OTEL_METRIC_EXPORT_INTERVAL=10000');
+      args.push('-e', 'OTEL_LOGS_EXPORT_INTERVAL=3000');
+    }
+  }
 
   // Local services (vault-search, reddit-search) on host.docker.internal must
   // bypass the OneCLI HTTPS_PROXY. Set before provider env so providers can

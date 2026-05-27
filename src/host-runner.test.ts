@@ -75,6 +75,25 @@ describe('buildHostProcessEnv', () => {
     expect(env.no_proxy).toBe('localhost,127.0.0.1');
   });
 
+  it('includes OTEL env vars when not disabled', () => {
+    const env = buildHostProcessEnv({
+      baseEnv: {},
+      onecliEnv: {},
+      home: '/tmp/home',
+      sessDir: '/tmp/sess',
+      groupDir: '/tmp/group',
+      projectRoot: '/tmp/project',
+      sessionId: 'sess-test-123',
+      agentGroupName: 'Sentinel',
+    });
+    expect(env.CLAUDE_CODE_ENABLE_TELEMETRY).toBe('1');
+    expect(env.OTEL_TRACES_EXPORTER).toBe('otlp');
+    expect(env.OTEL_METRICS_EXPORTER).toBe('none');
+    expect(env.OTEL_RESOURCE_ATTRIBUTES).toContain('service.name=host-agent');
+    expect(env.OTEL_RESOURCE_ATTRIBUTES).toContain('session.id=sess-test-123');
+    expect(env.OTEL_RESOURCE_ATTRIBUTES).toContain('agent.group=Sentinel');
+  });
+
   it('preserves non-string onecli values without rewrite', () => {
     const env = buildHostProcessEnv({
       baseEnv: {},
