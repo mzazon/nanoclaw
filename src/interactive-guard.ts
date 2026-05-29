@@ -23,6 +23,7 @@ export type BufferSignal =
   | 'auto-mode-block'
   | 'network-block'
   | 'model-error'
+  | 'api-error' // LOCAL-018: CC "API Error: NNN" framing
   | null;
 
 export type LimitType = 'session' | 'weekly' | 'monthly' | 'Opus' | 'unknown';
@@ -32,6 +33,7 @@ export interface ScanResult {
   limitType?: LimitType;
   percent?: number;
   resetSpec?: ResetSpec | null;
+  apiErrorCode?: number; // LOCAL-018
 }
 
 export type GuardAction =
@@ -68,6 +70,18 @@ const AUTO_MODE_RE =
 const NETWORK_RE = /(Unable to connect to API|Credit balance is too low|Request rejected \(429\))/i;
 const MODEL_ERROR_RE =
   /(There(?:'|’)s an issue with the selected model|Claude Opus is not available with the Claude Pro plan|thinking\.type\.enabled is not supported)/i;
+// LOCAL-018: CC prints transient/terminal API failures as "API Error: <status> <body>".
+// By the time this surfaces, CC has exhausted its own internal retries.
+const API_ERROR_RE = /API Error:\s*(\d{3})\b/i;
+
+export type ApiErrorClass = 'transient' | 'bad-request';
+
+/** LOCAL-018: 5xx (incl. 529 overloaded) and 429 (API burst) are transient → retry.
+ *  Other 4xx (400/401/403/422) are client/terminal → not retryable. */
+export function classifyApiErrorCode(code: number): ApiErrorClass {
+  if (code >= 500 || code === 429) return 'transient';
+  return 'bad-request';
+}
 
 /**
  * Strip / normalize ANSI escape sequences from PTY output. CC renders its TUI
@@ -114,7 +128,13 @@ export function scanPtyBuffer(buffer: string): ScanResult {
   // Priority 5: policy-refusal
   if (POLICY_REFUSAL_RE.test(tail)) return { signal: 'policy-refusal' };
 
-  // Priority 6: auto-mode-block (conditional action)
+  // Priority 6: api-error (CC's "API Error: NNN" framing — transient or client) — LOCAL-018
+  const apiErrMatch = tail.match(API_ERROR_RE);
+  if (apiErrMatch) {
+    return { signal: 'api-error', apiErrorCode: parseInt(apiErrMatch[1], 10) };
+  }
+
+  // Priority 7: auto-mode-block (conditional action)
   if (AUTO_MODE_RE.test(tail)) return { signal: 'auto-mode-block' };
 
   // Priority 7: network-block (conditional action)

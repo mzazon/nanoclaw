@@ -1,5 +1,5 @@
 import { describe, test, expect, vi } from 'vitest';
-import { scanPtyBuffer, decideAction, executeAction } from './interactive-guard.js';
+import { scanPtyBuffer, decideAction, executeAction, classifyApiErrorCode } from './interactive-guard.js';
 import type { SessionLatches } from './interactive-rate-limit.js';
 
 function freshLatch(): SessionLatches {
@@ -608,4 +608,36 @@ describe('executeAction', () => {
     vi.useRealTimers();
     clearTimeout(latch.rateLimitScheduled!.timeoutHandle);
   });
+});
+
+// ---- LOCAL-018: api-error detection + classification ----
+describe('scanPtyBuffer — api-error (CC "API Error: NNN" framing) [LOCAL-018]', () => {
+  test('captures a 500', () => {
+    const r = scanPtyBuffer('API Error: 500 Internal server error. This is a server-side issue.');
+    expect(r.signal).toBe('api-error');
+    expect(r.apiErrorCode).toBe(500);
+  });
+
+  test.each([502, 503, 504, 529, 429, 400, 422])('captures %i', (code) => {
+    const r = scanPtyBuffer(`Something happened\nAPI Error: ${code} some body text`);
+    expect(r.signal).toBe('api-error');
+    expect(r.apiErrorCode).toBe(code);
+  });
+
+  test('subscription rate-limit wins over API Error: 429', () => {
+    const r = scanPtyBuffer("You've hit your weekly limit · resets 1pm\nAPI Error: 429 rate_limit");
+    expect(r.signal).toBe('rate-limit');
+  });
+
+  test('context-overflow text wins over a bare 400', () => {
+    const r = scanPtyBuffer('Prompt is too long');
+    expect(r.signal).toBe('context-overflow');
+  });
+});
+
+describe('classifyApiErrorCode [LOCAL-018]', () => {
+  test.each([500, 502, 503, 504, 529, 429])('%i is transient', (c) =>
+    expect(classifyApiErrorCode(c)).toBe('transient'));
+  test.each([400, 401, 403, 422])('%i is bad-request', (c) =>
+    expect(classifyApiErrorCode(c)).toBe('bad-request'));
 });
