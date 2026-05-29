@@ -210,7 +210,12 @@ export function __resetLatchesForTest(): void {
 // respawn that recovery itself triggers. Reset is time-window based (a fresh
 // incident), never session-destroyed based.
 export const API_ERROR_CAP = 3;
-export const API_ERROR_RESET_WINDOW_MS = 5 * 60 * 1000;
+// 15 min, not 5: each incident takes ~3-4 sweep ticks to confirm (two-scan +
+// respawn), and respawn latency spikes under the very load that produces 5xx.
+// A short window resets the counter mid-outage → cap never reached (no
+// escalation) AND every cycle looks like "attempt 1" (retry-notice spam). The
+// window must comfortably exceed the slowest re-error cadence. LOCAL-018.
+export const API_ERROR_RESET_WINDOW_MS = 15 * 60 * 1000;
 // While a pending message keeps re-driving, the guard re-escalates every cycle.
 // Gate operator/user escalation alerts to at most one per cooldown so the
 // recovery loop stays quiet (recovery itself keeps running). LOCAL-018.
