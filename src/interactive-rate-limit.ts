@@ -200,4 +200,44 @@ export function onSessionDestroyed(sessionId: string): void {
 /** @internal — test-only reset; not exported from index */
 export function __resetLatchesForTest(): void {
   for (const [id] of _latches) onSessionDestroyed(id);
+  _apiErrorAttempts.clear(); // LOCAL-018
+}
+
+// ---- LOCAL-018: API-error attempt counter ----
+// MUST live OUTSIDE SessionLatches: onSessionDestroyed (interactive-runner.ts:225,
+// fired on EVERY child exit including a guard kill-respawn) deletes the latch entry.
+// Storing the counter here, untouched by onSessionDestroyed, lets it survive the
+// respawn that recovery itself triggers. Reset is time-window based (a fresh
+// incident), never session-destroyed based.
+export const API_ERROR_CAP = 3;
+export const API_ERROR_RESET_WINDOW_MS = 5 * 60 * 1000;
+
+const _apiErrorAttempts: Map<string, { attempts: number; lastErrorAt: number }> = new Map();
+
+/** Record a confirmed api-error; returns the running attempt count. Starts a
+ *  fresh count if the previous error was older than the reset window. */
+export function recordApiError(sessionId: string, now: number): number {
+  // Opportunistic prune of logically-expired entries (bounded memory).
+  for (const [id, e] of _apiErrorAttempts) {
+    if (id !== sessionId && now - e.lastErrorAt > API_ERROR_RESET_WINDOW_MS) {
+      _apiErrorAttempts.delete(id);
+    }
+  }
+  const e = _apiErrorAttempts.get(sessionId);
+  if (!e || now - e.lastErrorAt > API_ERROR_RESET_WINDOW_MS) {
+    _apiErrorAttempts.set(sessionId, { attempts: 1, lastErrorAt: now });
+    return 1;
+  }
+  e.attempts += 1;
+  e.lastErrorAt = now;
+  return e.attempts;
+}
+
+export function getApiErrorAttempts(sessionId: string): number {
+  return _apiErrorAttempts.get(sessionId)?.attempts ?? 0;
+}
+
+/** Reset on a genuine clean turn. Deliberately NOT called from onSessionDestroyed. */
+export function clearApiErrorAttempts(sessionId: string): void {
+  _apiErrorAttempts.delete(sessionId);
 }

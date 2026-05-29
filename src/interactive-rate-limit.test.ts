@@ -5,6 +5,11 @@ import {
   getLatches,
   onSessionDestroyed,
   __resetLatchesForTest,
+  recordApiError,
+  getApiErrorAttempts,
+  clearApiErrorAttempts,
+  API_ERROR_CAP,
+  API_ERROR_RESET_WINDOW_MS,
   type SessionLatches,
 } from './interactive-rate-limit.js';
 
@@ -169,4 +174,37 @@ describe('onSessionDestroyed', () => {
   it('is safe to call for unknown session', () => {
     expect(() => onSessionDestroyed('never-existed')).not.toThrow();
   });
+});
+
+// ---- LOCAL-018: api-error attempt counter ----
+describe('api-error attempt counter [LOCAL-018]', () => {
+  afterEach(() => clearApiErrorAttempts('s1'));
+
+  it('increments within the window', () => {
+    const t = 1_000_000;
+    expect(recordApiError('s1', t)).toBe(1);
+    expect(recordApiError('s1', t + 1000)).toBe(2);
+    expect(getApiErrorAttempts('s1')).toBe(2);
+  });
+
+  it('resets after the window elapses', () => {
+    const t = 1_000_000;
+    recordApiError('s1', t);
+    expect(recordApiError('s1', t + API_ERROR_RESET_WINDOW_MS + 1)).toBe(1);
+  });
+
+  it('SURVIVES onSessionDestroyed (the bug this guards against)', () => {
+    const t = 1_000_000;
+    expect(recordApiError('s1', t)).toBe(1);
+    onSessionDestroyed('s1'); // fires on every kill-respawn
+    expect(recordApiError('s1', t + 1000)).toBe(2); // NOT reset to 1
+  });
+
+  it('clearApiErrorAttempts resets', () => {
+    recordApiError('s1', 1);
+    clearApiErrorAttempts('s1');
+    expect(getApiErrorAttempts('s1')).toBe(0);
+  });
+
+  it('cap is 3', () => expect(API_ERROR_CAP).toBe(3));
 });
