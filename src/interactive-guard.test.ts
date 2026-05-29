@@ -1,11 +1,6 @@
 import { describe, test, it, expect, vi } from 'vitest';
 import { scanPtyBuffer, decideAction, executeAction, classifyApiErrorCode } from './interactive-guard.js';
-import {
-  recordApiError,
-  clearApiErrorAttempts,
-  API_ERROR_CAP,
-  type SessionLatches,
-} from './interactive-rate-limit.js';
+import { recordApiError, clearApiErrorAttempts, API_ERROR_CAP, type SessionLatches } from './interactive-rate-limit.js';
 
 function freshLatch(): SessionLatches {
   return {
