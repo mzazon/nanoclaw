@@ -211,11 +211,21 @@ export function __resetLatchesForTest(): void {
 // incident), never session-destroyed based.
 export const API_ERROR_CAP = 3;
 export const API_ERROR_RESET_WINDOW_MS = 5 * 60 * 1000;
+// While a pending message keeps re-driving, the guard re-escalates every cycle.
+// Gate operator/user escalation alerts to at most one per cooldown so the
+// recovery loop stays quiet (recovery itself keeps running). LOCAL-018.
+export const API_ERROR_ALERT_COOLDOWN_MS = 10 * 60 * 1000;
 
-const _apiErrorAttempts: Map<string, { attempts: number; lastErrorAt: number }> = new Map();
+interface ApiErrorEntry {
+  attempts: number;
+  lastErrorAt: number;
+  lastAlertedAt: number;
+}
+const _apiErrorAttempts: Map<string, ApiErrorEntry> = new Map();
 
 /** Record a confirmed api-error; returns the running attempt count. Starts a
- *  fresh count if the previous error was older than the reset window. */
+ *  fresh count (and resets the alert cooldown) if the previous error was older
+ *  than the reset window. */
 export function recordApiError(sessionId: string, now: number): number {
   // Opportunistic prune of logically-expired entries (bounded memory).
   for (const [id, e] of _apiErrorAttempts) {
@@ -225,7 +235,7 @@ export function recordApiError(sessionId: string, now: number): number {
   }
   const e = _apiErrorAttempts.get(sessionId);
   if (!e || now - e.lastErrorAt > API_ERROR_RESET_WINDOW_MS) {
-    _apiErrorAttempts.set(sessionId, { attempts: 1, lastErrorAt: now });
+    _apiErrorAttempts.set(sessionId, { attempts: 1, lastErrorAt: now, lastAlertedAt: 0 });
     return 1;
   }
   e.attempts += 1;
@@ -235,6 +245,22 @@ export function recordApiError(sessionId: string, now: number): number {
 
 export function getApiErrorAttempts(sessionId: string): number {
   return _apiErrorAttempts.get(sessionId)?.attempts ?? 0;
+}
+
+/** Returns true (and stamps `lastAlertedAt`) when an escalation alert may fire
+ *  now — i.e. none fired within API_ERROR_ALERT_COOLDOWN_MS. Throttles operator
+ *  and user notices while the recovery loop keeps re-driving. */
+export function shouldAlertApiError(sessionId: string, now: number): boolean {
+  let e = _apiErrorAttempts.get(sessionId);
+  if (!e) {
+    e = { attempts: 0, lastErrorAt: now, lastAlertedAt: 0 };
+    _apiErrorAttempts.set(sessionId, e);
+  }
+  if (e.lastAlertedAt !== 0 && now - e.lastAlertedAt < API_ERROR_ALERT_COOLDOWN_MS) {
+    return false;
+  }
+  e.lastAlertedAt = now;
+  return true;
 }
 
 /** Reset on a genuine clean turn. Deliberately NOT called from onSessionDestroyed. */

@@ -9,6 +9,7 @@ import {
   computeResetMs,
   recordApiError,
   getApiErrorAttempts,
+  shouldAlertApiError,
   API_ERROR_CAP,
   type ResetSpec,
   type SessionLatches,
@@ -297,8 +298,9 @@ export function executeAction(action: GuardAction, scan: ScanResult, latch: Sess
 
     case 'kill-respawn':
       log.info('Interactive guard: kill-respawn', { sessionId: ctx.sessionId, signal: scan.signal });
-      if (scan.signal === 'api-error') {
-        // LOCAL-018 — re-drive a transient API error; let the user know.
+      if (scan.signal === 'api-error' && getApiErrorAttempts(ctx.sessionId) <= 1) {
+        // LOCAL-018 — notify on the first re-drive only; the recovery loop runs
+        // every sweep cycle while the message stays pending, so stay quiet after.
         ctx.notify?.(`⏳ Hit a transient API error (HTTP ${scan.apiErrorCode ?? '5xx'}) — retrying…`);
       }
       ctx.killProcess?.();
@@ -322,22 +324,28 @@ export function executeAction(action: GuardAction, scan: ScanResult, latch: Sess
       return;
 
     case 'api-error-escalate': {
-      // LOCAL-018. Structured operator-escalation signal (host log → Loki,
-      // correlatable by session.id). Channel notify happens regardless.
+      // LOCAL-018. The pending message keeps re-driving every sweep cycle, so
+      // recovery (kill) runs each time; the operator/user ALERT is cooldown-
+      // throttled to avoid spam. Structured warn → Loki, correlatable by session.id.
       const code = scan.apiErrorCode ?? 0;
       const attempts = getApiErrorAttempts(ctx.sessionId);
-      log.warn('Interactive guard: API error escalated', { sessionId: ctx.sessionId, code, attempts });
-      if (classifyApiErrorCode(code) === 'bad-request') {
-        ctx.notify?.(
-          `⚠️ The API rejected the request (HTTP ${code}) — it won't succeed on retry. Restarting with fresh context; please rephrase or simplify.`,
-        );
-        ctx.killProcess?.({ noContinue: true });
-      } else {
-        ctx.notify?.(
-          `🛠 Persistent API errors (HTTP ${code}) after ${attempts} attempts — operator notified. Please try again shortly.`,
-        );
-        ctx.killProcess?.();
+      const alert = shouldAlertApiError(ctx.sessionId, Date.now());
+      const isBadRequest = classifyApiErrorCode(code) === 'bad-request';
+      if (alert) {
+        log.warn('Interactive guard: API error escalated', { sessionId: ctx.sessionId, code, attempts });
+        if (isBadRequest) {
+          ctx.notify?.(
+            `⚠️ The API rejected the request (HTTP ${code}) — it won't succeed on retry. Restarting with fresh context; please rephrase or simplify.`,
+          );
+        } else {
+          ctx.notify?.(
+            `🛠 Persistent API errors (HTTP ${code}) after ${attempts} attempts — operator notified. Still retrying automatically.`,
+          );
+        }
       }
+      // Recovery runs regardless of the alert throttle: bad-request → fresh
+      // context, transient → continue (re-drive the same turn).
+      ctx.killProcess?.(isBadRequest ? { noContinue: true } : undefined);
       return;
     }
 

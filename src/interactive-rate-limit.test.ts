@@ -8,8 +8,10 @@ import {
   recordApiError,
   getApiErrorAttempts,
   clearApiErrorAttempts,
+  shouldAlertApiError,
   API_ERROR_CAP,
   API_ERROR_RESET_WINDOW_MS,
+  API_ERROR_ALERT_COOLDOWN_MS,
   type SessionLatches,
 } from './interactive-rate-limit.js';
 
@@ -207,4 +209,22 @@ describe('api-error attempt counter [LOCAL-018]', () => {
   });
 
   it('cap is 3', () => expect(API_ERROR_CAP).toBe(3));
+});
+
+// ---- LOCAL-018: escalation alert cooldown ----
+describe('shouldAlertApiError — escalation throttle [LOCAL-018]', () => {
+  afterEach(() => clearApiErrorAttempts('a1'));
+
+  it('allows the first alert, blocks within the cooldown, allows after', () => {
+    const t = 2_000_000;
+    recordApiError('a1', t); // create entry
+    expect(shouldAlertApiError('a1', t)).toBe(true); // first
+    expect(shouldAlertApiError('a1', t + 1000)).toBe(false); // within cooldown
+    expect(shouldAlertApiError('a1', t + API_ERROR_ALERT_COOLDOWN_MS + 1)).toBe(true); // after
+  });
+
+  it('allows the first alert even with no prior recordApiError', () => {
+    expect(shouldAlertApiError('a2', 5_000_000)).toBe(true);
+    clearApiErrorAttempts('a2');
+  });
 });

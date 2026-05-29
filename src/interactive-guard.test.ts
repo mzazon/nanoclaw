@@ -674,7 +674,9 @@ describe('decideAction — api-error [LOCAL-018]', () => {
 });
 
 describe('executeAction — api-error [LOCAL-018]', () => {
-  it('kill-respawn notifies + continues for api-error', () => {
+  it('kill-respawn notifies "retrying" only on the first attempt + continues', () => {
+    clearApiErrorAttempts('e1');
+    recordApiError('e1', Date.now()); // attempts → 1
     const notes: string[] = [];
     let killFlags: any = 'NOT_CALLED';
     executeAction('kill-respawn', apiScan(500), freshLatch(), {
@@ -687,7 +689,22 @@ describe('executeAction — api-error [LOCAL-018]', () => {
     expect(killFlags).toBe('continue');
   });
 
+  it('kill-respawn stays silent on subsequent attempts (no retry spam)', () => {
+    clearApiErrorAttempts('e1b');
+    recordApiError('e1b', Date.now());
+    recordApiError('e1b', Date.now()); // attempts → 2
+    const notes: string[] = [];
+    executeAction('kill-respawn', apiScan(500), freshLatch(), {
+      sessionId: 'e1b',
+      sessionEpoch: 'e1b:0',
+      notify: (t) => notes.push(t),
+      killProcess: () => {},
+    });
+    expect(notes).toHaveLength(0);
+  });
+
   it('escalate (bad-request) notifies + kills noContinue', () => {
+    clearApiErrorAttempts('e2');
     const notes: string[] = [];
     let killFlags: any = 'NOT_CALLED';
     executeAction('api-error-escalate', apiScan(400), freshLatch(), {
@@ -701,6 +718,7 @@ describe('executeAction — api-error [LOCAL-018]', () => {
   });
 
   it('escalate (exhausted transient) notifies + kills with continue', () => {
+    clearApiErrorAttempts('e3');
     const notes: string[] = [];
     let killFlags: any = 'NOT_CALLED';
     executeAction('api-error-escalate', apiScan(503), freshLatch(), {
@@ -711,5 +729,23 @@ describe('executeAction — api-error [LOCAL-018]', () => {
     });
     expect(notes[0]).toMatch(/Persistent API errors/i);
     expect(killFlags).toBe('continue');
+  });
+
+  it('escalate alerts are cooldown-throttled but recovery keeps killing', () => {
+    clearApiErrorAttempts('e4');
+    const notes: string[] = [];
+    let kills = 0;
+    const ctx = {
+      sessionId: 'e4',
+      sessionEpoch: 'e4:0',
+      notify: (t: string) => notes.push(t),
+      killProcess: () => {
+        kills++;
+      },
+    };
+    executeAction('api-error-escalate', apiScan(503), freshLatch(), ctx);
+    executeAction('api-error-escalate', apiScan(503), freshLatch(), ctx); // within cooldown
+    expect(notes).toHaveLength(1); // alert throttled
+    expect(kills).toBe(2); // recovery still runs each time
   });
 });
