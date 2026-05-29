@@ -498,10 +498,15 @@ async function sweepSession(session: Session): Promise<void> {
               heartbeatStaleMs: hbStaleMs,
               processAlive: true,
               pendingMessages: dueCount,
+              sessionId: session.id, // LOCAL-018
+              now: Date.now(), // LOCAL-018
             });
             evalSpan.setAttribute('guard.action', result);
             evalSpan.setAttribute('guard.signal', scan.signal ?? 'none');
             evalSpan.setAttribute('guard.pending', dueCount);
+            if (scan.signal === 'api-error') {
+              evalSpan.setAttribute('guard.api_error_code', scan.apiErrorCode ?? 0); // LOCAL-018
+            }
             return result;
           } finally {
             evalSpan.end();

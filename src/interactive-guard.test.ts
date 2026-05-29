@@ -1,6 +1,11 @@
-import { describe, test, expect, vi } from 'vitest';
+import { describe, test, it, expect, vi } from 'vitest';
 import { scanPtyBuffer, decideAction, executeAction, classifyApiErrorCode } from './interactive-guard.js';
-import type { SessionLatches } from './interactive-rate-limit.js';
+import {
+  recordApiError,
+  clearApiErrorAttempts,
+  API_ERROR_CAP,
+  type SessionLatches,
+} from './interactive-rate-limit.js';
 
 function freshLatch(): SessionLatches {
   return {
@@ -637,7 +642,79 @@ describe('scanPtyBuffer — api-error (CC "API Error: NNN" framing) [LOCAL-018]'
 
 describe('classifyApiErrorCode [LOCAL-018]', () => {
   test.each([500, 502, 503, 504, 529, 429])('%i is transient', (c) =>
-    expect(classifyApiErrorCode(c)).toBe('transient'));
-  test.each([400, 401, 403, 422])('%i is bad-request', (c) =>
-    expect(classifyApiErrorCode(c)).toBe('bad-request'));
+    expect(classifyApiErrorCode(c)).toBe('transient'),
+  );
+  test.each([400, 401, 403, 422])('%i is bad-request', (c) => expect(classifyApiErrorCode(c)).toBe('bad-request'));
+});
+
+// ---- LOCAL-018: api-error decide + execute ----
+const apiScan = (code: number): any => ({ signal: 'api-error', apiErrorCode: code });
+
+function decide(sessionId: string, scan: any, latch: SessionLatches, now: number) {
+  return decideAction({ scan, latch, heartbeatStaleMs: 0, processAlive: true, pendingMessages: 1, sessionId, now });
+}
+
+describe('decideAction — api-error [LOCAL-018]', () => {
+  it('first sight returns ok (two-scan, not exempt)', () => {
+    expect(decide('g0', apiScan(500), freshLatch(), 1_000_000)).toBe('ok');
+  });
+
+  it('confirmed transient under cap → kill-respawn', () => {
+    clearApiErrorAttempts('g1');
+    expect(decide('g1', apiScan(500), confirmedLatch('api-error'), 1_000_000)).toBe('kill-respawn');
+  });
+
+  it('confirmed bad-request → escalate immediately', () => {
+    clearApiErrorAttempts('g2');
+    expect(decide('g2', apiScan(400), confirmedLatch('api-error'), 1_000_000)).toBe('api-error-escalate');
+  });
+
+  it('escalates once attempts reach the cap', () => {
+    clearApiErrorAttempts('g3');
+    // Pre-seed cap-1 prior re-drives (survived respawns via the persistent counter)
+    for (let i = 0; i < API_ERROR_CAP - 1; i++) recordApiError('g3', 1_000_000 + i);
+    // Next confirmed transient → recordApiError returns cap → escalate
+    expect(decide('g3', apiScan(503), confirmedLatch('api-error'), 1_000_100)).toBe('api-error-escalate');
+  });
+});
+
+describe('executeAction — api-error [LOCAL-018]', () => {
+  it('kill-respawn notifies + continues for api-error', () => {
+    const notes: string[] = [];
+    let killFlags: any = 'NOT_CALLED';
+    executeAction('kill-respawn', apiScan(500), freshLatch(), {
+      sessionId: 'e1',
+      sessionEpoch: 'e1:0',
+      notify: (t) => notes.push(t),
+      killProcess: (f) => (killFlags = f ?? 'continue'),
+    });
+    expect(notes[0]).toMatch(/transient API error/i);
+    expect(killFlags).toBe('continue');
+  });
+
+  it('escalate (bad-request) notifies + kills noContinue', () => {
+    const notes: string[] = [];
+    let killFlags: any = 'NOT_CALLED';
+    executeAction('api-error-escalate', apiScan(400), freshLatch(), {
+      sessionId: 'e2',
+      sessionEpoch: 'e2:0',
+      notify: (t) => notes.push(t),
+      killProcess: (f) => (killFlags = f),
+    });
+    expect(notes[0]).toMatch(/rejected the request/i);
+    expect(killFlags).toEqual({ noContinue: true });
+  });
+
+  it('escalate (exhausted transient) notifies + kills with continue', () => {
+    const notes: string[] = [];
+    let killFlags: any = 'NOT_CALLED';
+    executeAction('api-error-escalate', apiScan(503), freshLatch(), {
+      sessionId: 'e3',
+      sessionEpoch: 'e3:0',
+      notify: (t) => notes.push(t),
+      killProcess: (f) => (killFlags = f ?? 'continue'),
+    });
+    expect(notes[0]).toMatch(/Persistent API errors/i);
+    expect(killFlags).toBe('continue');
+  });
 });

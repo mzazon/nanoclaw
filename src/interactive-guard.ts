@@ -4,7 +4,15 @@
  * policy, etc.) and decides whether to send a keystroke, kill, or kill-respawn.
  */
 import { log } from './log.js';
-import { parseResetTime, computeResetMs, type ResetSpec, type SessionLatches } from './interactive-rate-limit.js';
+import {
+  parseResetTime,
+  computeResetMs,
+  recordApiError,
+  getApiErrorAttempts,
+  API_ERROR_CAP,
+  type ResetSpec,
+  type SessionLatches,
+} from './interactive-rate-limit.js';
 import type { RespawnFlags } from './interactive-runner.js';
 
 const STUCK_THRESHOLD_MS = 5 * 60 * 1000;
@@ -44,6 +52,7 @@ export type GuardAction =
   | 'kill-idle'
   | 'rate-limit-schedule'
   | 'quota-warning-notify'
+  | 'api-error-escalate' // LOCAL-018
   | 'ok';
 
 // Regex anchors — see spec §"Regex anchors" for citations.
@@ -182,10 +191,12 @@ export interface DecideState {
   heartbeatStaleMs: number;
   processAlive: boolean;
   pendingMessages: number;
+  sessionId?: string; // LOCAL-018 — required for the api-error path
+  now?: number; // LOCAL-018 — injectable clock (default Date.now())
 }
 
 export function decideAction(state: DecideState): GuardAction {
-  const { scan, latch, heartbeatStaleMs, processAlive, pendingMessages } = state;
+  const { scan, latch, heartbeatStaleMs, processAlive, pendingMessages, sessionId, now } = state;
 
   // Two-scan confirmation: record signal, defer action until confirmed.
   if (!CONFIRM_EXEMPT.has(scan.signal)) {
@@ -220,6 +231,15 @@ export function decideAction(state: DecideState): GuardAction {
 
     case 'model-error':
       return 'kill';
+
+    case 'api-error': {
+      // LOCAL-018. Two-scan already confirmed entry here. Non-retryable client
+      // errors escalate immediately; transient errors re-drive until the cap.
+      const cls = classifyApiErrorCode(scan.apiErrorCode ?? 0);
+      if (cls === 'bad-request') return 'api-error-escalate';
+      const attempts = recordApiError(sessionId ?? '', now ?? Date.now());
+      return attempts >= API_ERROR_CAP ? 'api-error-escalate' : 'kill-respawn';
+    }
 
     case 'context-overflow':
       return 'kill-respawn-noContinue';
@@ -277,6 +297,10 @@ export function executeAction(action: GuardAction, scan: ScanResult, latch: Sess
 
     case 'kill-respawn':
       log.info('Interactive guard: kill-respawn', { sessionId: ctx.sessionId, signal: scan.signal });
+      if (scan.signal === 'api-error') {
+        // LOCAL-018 — re-drive a transient API error; let the user know.
+        ctx.notify?.(`⏳ Hit a transient API error (HTTP ${scan.apiErrorCode ?? '5xx'}) — retrying…`);
+      }
       ctx.killProcess?.();
       return;
 
@@ -296,6 +320,26 @@ export function executeAction(action: GuardAction, scan: ScanResult, latch: Sess
       log.info('Interactive guard: killing idle session', { sessionId: ctx.sessionId });
       ctx.killProcess?.();
       return;
+
+    case 'api-error-escalate': {
+      // LOCAL-018. Structured operator-escalation signal (host log → Loki,
+      // correlatable by session.id). Channel notify happens regardless.
+      const code = scan.apiErrorCode ?? 0;
+      const attempts = getApiErrorAttempts(ctx.sessionId);
+      log.warn('Interactive guard: API error escalated', { sessionId: ctx.sessionId, code, attempts });
+      if (classifyApiErrorCode(code) === 'bad-request') {
+        ctx.notify?.(
+          `⚠️ The API rejected the request (HTTP ${code}) — it won't succeed on retry. Restarting with fresh context; please rephrase or simplify.`,
+        );
+        ctx.killProcess?.({ noContinue: true });
+      } else {
+        ctx.notify?.(
+          `🛠 Persistent API errors (HTTP ${code}) after ${attempts} attempts — operator notified. Please try again shortly.`,
+        );
+        ctx.killProcess?.();
+      }
+      return;
+    }
 
     case 'rate-limit-schedule': {
       ctx.ptyWrite?.('\r'); // accept "Stop and wait" default
