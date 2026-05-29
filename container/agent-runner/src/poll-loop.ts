@@ -38,6 +38,8 @@ export type ErrorKind =
   | 'network'
   | 'model-error'
   | 'overloaded'
+  | 'server-error' // LOCAL-018
+  | 'bad-request' // LOCAL-018
   | 'unknown';
 
 export interface ClassifiedError {
@@ -104,6 +106,17 @@ export function classifyError(event: ErrorLike): ClassifiedError {
     };
   }
 
+  // LOCAL-018: 5xx server errors. The SDK retries these internally; this fires
+  // mainly for the THROWN post-exhaustion error surfaced via the catch path.
+  // Placed after the 529 check so overloaded keeps its own kind.
+  if (/\b5\d{2}\b|internal server error|API Error:\s*5\d{2}/i.test(m)) {
+    return {
+      kind: 'server-error',
+      userMessage: "⏳ Anthropic's API returned a server error and retries were exhausted. Please try again shortly.",
+      suppressNudge: true,
+    };
+  }
+
   if (/network|ECONNREFUSED|ECONNRESET|ETIMEDOUT|fetch failed/i.test(m)) {
     return {
       kind: 'network',
@@ -116,6 +129,16 @@ export function classifyError(event: ErrorLike): ClassifiedError {
     return {
       kind: 'model-error',
       userMessage: `🛠 Model config issue: ${m.slice(0, 200)}. Operator notified.`,
+      suppressNudge: true,
+    };
+  }
+
+  // LOCAL-018: client errors (4xx other than 401/429) — not retryable. Placed
+  // after model-error so model-specific invalid_request keeps its own kind.
+  if (/\b400\b|\b422\b|invalid_request|API Error:\s*4(?:00|22)/i.test(m)) {
+    return {
+      kind: 'bad-request',
+      userMessage: `⚠️ The API rejected the request (${m.slice(0, 160)}). This won't succeed on retry — please rephrase or simplify.`,
       suppressNudge: true,
     };
   }
@@ -406,6 +429,16 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
         clearContinuation(config.providerName);
       }
 
+      // LOCAL-018: classify the thrown error (by the time a transient error is
+      // thrown, the SDK has already exhausted its internal retries) for a
+      // class-appropriate notice instead of a raw stack message, and emit an
+      // operator-escalation line for terminal transient / client errors.
+      const cls = classifyError({ message: errMsg });
+      const text = cls.kind !== 'unknown' ? cls.userMessage : `Error: ${errMsg}`;
+      if (cls.kind === 'server-error' || cls.kind === 'network' || cls.kind === 'bad-request') {
+        log(`ESCALATION api-error kind=${cls.kind} msg=${errMsg.slice(0, 200)}`);
+      }
+
       // Write error response so the user knows something went wrong
       writeMessageOut({
         id: generateId(),
@@ -413,7 +446,7 @@ export async function runPollLoop(config: PollLoopConfig): Promise<void> {
         platform_id: routing.platformId,
         channel_type: routing.channelType,
         thread_id: routing.threadId,
-        content: JSON.stringify({ text: `Error: ${errMsg}` }),
+        content: JSON.stringify({ text }),
       });
     } finally {
       clearCurrentInReplyTo();

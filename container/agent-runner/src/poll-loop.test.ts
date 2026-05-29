@@ -440,3 +440,25 @@ describe('classifyError', () => {
     expect(cls.userMessage).toContain('shortly');
   });
 });
+
+// ---- LOCAL-018: server-error / bad-request classification ----
+describe('classifyError — server-error / bad-request [LOCAL-018]', () => {
+  it('classifies a thrown 500', () => {
+    expect(classifyError({ message: 'API Error: 500 Internal server error' }).kind).toBe('server-error');
+  });
+  it('classifies a generic internal server error', () => {
+    expect(classifyError({ message: 'Internal server error' }).kind).toBe('server-error');
+  });
+  it('classifies invalid_request as bad-request', () => {
+    expect(classifyError({ message: 'invalid_request_error: messages.0 too long' }).kind).toBe('bad-request');
+  });
+  it('classifies a thrown 400', () => {
+    expect(classifyError({ message: 'API Error: 400 bad request' }).kind).toBe('bad-request');
+  });
+  it('529 is still overloaded, not server-error', () => {
+    expect(classifyError({ message: 'API Error: 529 overloaded' }).kind).toBe('overloaded');
+  });
+  it('context-overflow still wins over a 400', () => {
+    expect(classifyError({ message: 'prompt is too long: 400' }).kind).toBe('context-overflow');
+  });
+});
