@@ -34,7 +34,12 @@ import type { AgentGroup, Session } from './types.js';
 
 const onecli = new OneCLI({ url: ONECLI_URL, apiKey: ONECLI_API_KEY });
 
-const DOCKER_BRIDGE_IP = '172.17.0.1';
+// LOCAL-019: Docker bridge gateway IP the OneCLI MITM proxy is reached at.
+// Was hardcoded 172.17.0.1 (intel-pc docker0). Now env-driven via
+// NANOCLAW_DOCKER_BRIDGE_IP so elite (docker bip 10.200.255.1) and any other
+// host can override it; the default preserves the prior intel-pc behavior.
+// Resolved per-call from baseEnv to keep buildHostProcessEnv pure + testable.
+const DEFAULT_DOCKER_BRIDGE_IP = '172.17.0.1';
 
 let _bunBin: string | undefined;
 export function resolveBunBin(): string {
@@ -70,10 +75,12 @@ export function buildHostProcessEnv(opts: {
   sessionId?: string;
   agentGroupName?: string;
 }): Record<string, string | undefined> {
+  const bridgeIp =
+    opts.baseEnv.NANOCLAW_DOCKER_BRIDGE_IP || DEFAULT_DOCKER_BRIDGE_IP;
   const rewritten: Record<string, string> = {};
   for (const [key, value] of Object.entries(opts.onecliEnv)) {
     if (typeof value === 'string') {
-      rewritten[key] = value.replace(/host\.docker\.internal/g, DOCKER_BRIDGE_IP);
+      rewritten[key] = value.replace(/host\.docker\.internal/g, bridgeIp);
     }
   }
 

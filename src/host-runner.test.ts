@@ -22,6 +22,22 @@ describe('buildHostProcessEnv', () => {
     expect(env.OTHER).toBe('https://172.17.0.1:9999/path');
   });
 
+  it('honors NANOCLAW_DOCKER_BRIDGE_IP override for the bridge rewrite [LOCAL-019]', () => {
+    const env = buildHostProcessEnv({
+      baseEnv: { NANOCLAW_DOCKER_BRIDGE_IP: '10.200.255.1' },
+      onecliEnv: {
+        HTTPS_PROXY: 'https://host.docker.internal:10254',
+        OTHER: 'https://host.docker.internal:9999/path',
+      },
+      home: '/tmp/test-home',
+      sessDir: '/tmp/sess',
+      groupDir: '/tmp/group',
+      projectRoot: '/tmp/project',
+    });
+    expect(env.HTTPS_PROXY).toBe('https://10.200.255.1:10254');
+    expect(env.OTHER).toBe('https://10.200.255.1:9999/path');
+  });
+
   it('sets NANOCLAW_HOST_MODE', () => {
     const env = buildHostProcessEnv({
       baseEnv: {},
