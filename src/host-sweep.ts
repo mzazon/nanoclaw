@@ -75,6 +75,14 @@ const sessionOutboundState = new Map<string, { seq: number; changedAt: number }>
 
 const STALE_PROCESSING_KILL_MS = 5 * 60 * 1000;
 
+// LOCAL-020: suppression window for the stale-processing-kill #alerts page so a
+// repeatedly-killed session alerts at most once per window instead of on every
+// sweep that re-finds the same stuck claim (~6 min cadence → the 2026-05-30
+// storm). The kill itself still happens every tick; only the human-facing page
+// is throttled. Re-armed when the session's claims clear (see step 3b).
+const STALE_KILL_ALERT_SUPPRESS_MS = 30 * 60 * 1000;
+const staleKillAlertedAt = new Map<string, number>();
+
 interface CcStatusData {
   context_pct: number;
   cost_usd: number;
@@ -629,7 +637,19 @@ async function sweepSession(session: Session): Promise<void> {
     // 3b. Stale processing watchdog — container alive but bridge claims went
     // unanswered. Detects the silent-pipe failure: bridge sends notification,
     // marks processing, but CC never responds and no outbound activity occurs.
-    if (alive && outDb) {
+    //
+    // LOCAL-020: skip host-mode agents. The watchdog's premise ("no CC output
+    // ⇒ stuck") assumes a bridge/CC runtime. Host agents (LOCAL-010, e.g.
+    // Sentinel) have neither and legitimately emit no outbound between tasks —
+    // a 15-min infra-pulse can go hours producing nothing while polling
+    // perfectly (the heartbeat advances every iteration). Applying the
+    // output-idle heuristic to them stale-killed a fully-alive Sentinel every
+    // ~6 min and spammed #alerts (2026-05-30). Host agents are already guarded
+    // by step 3's heartbeat-based decideStuckAction (which reported 'ok'
+    // throughout the storm — the correct verdict). Interactive/cc-container DO
+    // keep this watchdog: it is their intended silent-bridge-stall detector.
+    const runtime3b = getContainerConfig(agentGroup.id)?.runtime;
+    if (alive && outDb && runtime3b !== 'host') {
       const maxSeq = (outDb.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM messages_out').get() as { m: number }).m;
       const prev = sessionOutboundState.get(session.id);
       if (!prev || prev.seq !== maxSeq) {
@@ -648,12 +668,23 @@ async function sweepSession(session: Session): Promise<void> {
             outputIdleMs,
             claimCount: claims.length,
           });
-          sendAlert(
-            `⚠️ Stale processing kill: session ${session.id} had ${claims.length} unconfirmed message(s) for ${Math.round(claimAgeMs / 1000)}s with no CC output. Container killed and messages re-queued.`,
-          ).catch(() => {});
+          // LOCAL-020: page once per incident, not once per sweep. The kill +
+          // requeue still runs every tick; only the #alerts notification is
+          // throttled (STALE_KILL_ALERT_SUPPRESS_MS). Re-armed below when claims
+          // clear, so a genuinely new incident pages immediately.
+          const lastAlerted = staleKillAlertedAt.get(session.id) ?? 0;
+          if (Date.now() - lastAlerted > STALE_KILL_ALERT_SUPPRESS_MS) {
+            staleKillAlertedAt.set(session.id, Date.now());
+            sendAlert(
+              `⚠️ Stale processing kill: session ${session.id} had ${claims.length} unconfirmed message(s) for ${Math.round(claimAgeMs / 1000)}s with no CC output. Container killed and messages re-queued.`,
+            ).catch(() => {});
+          }
           killContainer(session.id, 'stale-processing-no-output');
           resetStuckProcessingRows(inDb, outDb, session, 'stale-processing-no-output');
         }
+      } else {
+        // No outstanding claims — incident over; re-arm the alert for next time.
+        staleKillAlertedAt.delete(session.id);
       }
     }
 
@@ -766,12 +797,31 @@ function resetStuckProcessingRows(
     if (msg.processAfter && parseSqliteUtc(msg.processAfter) > now) continue;
 
     if (msg.tries >= MAX_TRIES) {
+      // LOCAL-020: surface dead-letters. With the A2 change (getCompletedRecurring
+      // now advances on 'failed'), a poison occurrence no longer freezes the
+      // series — but silently dropping a scheduled occurrence still violates the
+      // no-silent-failure rule (CLAUDE.md). Read the row's kind/series/recurrence
+      // BEFORE marking failed, then page for task/recurring messages so a dropped
+      // occurrence is visible, not just a log.warn. recurrence is still set at
+      // this point — handleRecurrence (step 5) runs after this and clears it.
+      const meta = inDb.prepare('SELECT kind, series_id, recurrence FROM messages_in WHERE id = ?').get(msg.id) as
+        | { kind: string; series_id: string | null; recurrence: string | null }
+        | undefined;
       markMessageFailed(inDb, msg.id);
       log.warn('Message marked as failed after max retries', {
         messageId: msg.id,
         sessionId: session.id,
         reason,
       });
+      if (meta && (meta.kind === 'task' || meta.recurrence)) {
+        const seriesLabel = meta.series_id ?? msg.id;
+        const tail = meta.recurrence
+          ? ' The recurring series will advance to its next occurrence; this occurrence was dropped.'
+          : '';
+        sendAlert(
+          `⚠️ Scheduled task dead-lettered after ${MAX_TRIES} retries (series ${seriesLabel}, reason: ${reason}) on session ${session.id}.${tail}`,
+        ).catch(() => {});
+      }
     } else {
       const backoffMs = BACKOFF_BASE_MS * Math.pow(2, msg.tries);
       const backoffSec = Math.floor(backoffMs / 1000);

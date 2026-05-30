@@ -77,6 +77,41 @@ describe('handleRecurrence', () => {
     expect(new Date(follow.process_after).getTime()).toBeGreaterThan(Date.now());
   });
 
+  // LOCAL-020: a recurring occurrence that dead-letters ('failed') must still
+  // fan out the next occurrence — otherwise a poison occurrence freezes the
+  // whole series permanently (the 2026-05-30 silent-freeze bug).
+  it('creates next occurrence for a FAILED recurring task (no permanent freeze)', async () => {
+    const db = freshDb();
+    insertTask(db, {
+      id: 'task-f1',
+      processAfter: '2020-01-01T00:00:00.000Z',
+      recurrence: '*/15 * * * *',
+      platformId: 'C123',
+      channelType: 'slack',
+      threadId: null,
+      content: JSON.stringify({ prompt: 'infra pulse' }),
+    });
+    // Host give-up path sets status='failed' after MAX_TRIES.
+    db.prepare(`UPDATE messages_in SET status='failed' WHERE id='task-f1'`).run();
+
+    await handleRecurrence(db, fakeSession());
+
+    const pending = db.prepare(`SELECT * FROM messages_in WHERE status='pending'`).all() as Array<{
+      recurrence: string;
+      series_id: string;
+    }>;
+    expect(pending).toHaveLength(1);
+    expect(pending[0].recurrence).toBe('*/15 * * * *');
+    expect(pending[0].series_id).toBe('task-f1');
+    // Failed tip remains (visible dead-letter) with recurrence cleared so it won't re-clone.
+    const old = db.prepare(`SELECT status, recurrence FROM messages_in WHERE id='task-f1'`).get() as {
+      status: string;
+      recurrence: string | null;
+    };
+    expect(old.status).toBe('failed');
+    expect(old.recurrence).toBeNull();
+  });
+
   it('does not clone rows whose recurrence is already cleared', async () => {
     const db = freshDb();
     insertTask(db, {

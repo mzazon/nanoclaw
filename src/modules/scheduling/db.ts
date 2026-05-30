@@ -119,9 +119,21 @@ export interface RecurringMessage {
   series_id: string;
 }
 
+// LOCAL-020: advance the recurrence chain on ANY terminal state, not just
+// 'completed'. When an occurrence exhausts MAX_TRIES the host give-up path
+// (host-sweep resetStuckProcessingRows → markMessageFailed) sets status='failed'.
+// Previously only 'completed' rows fanned out, so a poison occurrence (wedged
+// runtime / rate-limit / no-output) left the chain tip 'failed' with recurrence
+// still set and NO next occurrence was ever created — the series froze
+// permanently and silently. Including 'failed' lets the series survive a bad
+// occurrence. handleRecurrence clearRecurrence()s the old row after fanout, so a
+// 'failed' tip won't re-clone. Observed live 2026-05-30 (post intel-pc→elite
+// migration): the infra-pulse */15 and cc hourly series came within one retry
+// of permanent freeze. Function name kept for diff stability; it now means
+// "recurring rows in a terminal state".
 export function getCompletedRecurring(db: Database.Database): RecurringMessage[] {
   return db
-    .prepare("SELECT * FROM messages_in WHERE status = 'completed' AND recurrence IS NOT NULL")
+    .prepare("SELECT * FROM messages_in WHERE status IN ('completed', 'failed') AND recurrence IS NOT NULL")
     .all() as RecurringMessage[];
 }
 
